@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="docker-compose.yml" />
+    <File Path="README.md" />
+    <File Path="settings.props" />
+  </Folder>
+  <Project Path="openfga-language/pkg/csharp/OpenFga.Language.csproj" />
+  <Project Path="SealedFga.Sample/SealedFga.Sample.csproj" />
+  <Project Path="SealedFga/SealedFga.csproj" />
+</Solution>

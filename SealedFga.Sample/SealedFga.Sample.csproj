@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SealedFga.Sample</RootNamespace>
+    <OutputType>Exe</OutputType>
+
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
+
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Required to prevent duplicate generation between the emitted files and the ones written on disk -->
+    <Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SealedFga\SealedFga.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+  </ItemGroup>
+
+  <!-- TODO: Find a better solution -->
+  <ItemGroup>
+    <PackageReference Include="Antlr4.Runtime.Standard" OutputItemType="Analyzer" Version="4.13.1" />
+    <Analyzer Include="..\SealedFga\bin\Debug\netstandard2.0\OpenFga.Language.dll" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_Data_Sqlite)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="Microsoft.CodeAnalysis.AnalyzerUtilities" Version="$(MicrosoftCodeAnalysisVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_CodeAnalysis_AnalyzerUtilities)\lib\netstandard2.0\*.dll" />
+
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="$(MicrosoftEntityFrameworkCoreVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_EntityFrameworkCore_Relational)\lib\netstandard2.0\*.dll" />
+    <!-- The patched DLL seems to lead to runtime problems.
+    Instead we use the original one as seen above and disable runtime permission checks by mimicking the IgnoresAccessChecksToAttribute
+    <Analyzer Include="..\..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" />-->
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Abstractions" Version="$(MicrosoftAspNetCoreMvcVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_AspNetCore_Mvc_Abstractions)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="$(MicrosoftAspNetCoreMvcVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_AspNetCore_Mvc_Core)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="OpenFga.Sdk" Version="$(OpenFgaSdkVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgOpenFga_Sdk)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="System.IO.Pipelines" Version="9.0.9" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgSystem_IO_Pipelines)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="System.Text.Json" Version="9.0.9" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgSystem_Text_Json)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.9" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_Bcl_AsyncInterfaces)\lib\netstandard2.0\*.dll" />
+    <PackageReference Include="Microsoft.CodeAnalysis" Version="$(MicrosoftCodeAnalysisVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_CodeAnalysis)\analyzers\dotnet\cs\*.dll" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="$(MicrosoftCodeAnalysisVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_CodeAnalysis_Analyzers)\analyzers\dotnet\cs\*.dll" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Analyzers" Version="$(MicrosoftEntityFrameworkCoreVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_AspNetCore_Components_Analyzers)\analyzers\dotnet\cs\*.dll" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="$(MicrosoftEntityFrameworkCoreVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_EntityFrameworkCore_Analyzers)\analyzers\dotnet\cs\*.dll" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.20" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <Analyzer Include="$(PkgMicrosoft_Extensions_ObjectPool)\lib\netstandard2.0\*.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="model.fga" />
+  </ItemGroup>
+
+</Project>

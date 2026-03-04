@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga</RootNamespace>
+    <PackageId>SealedFga</PackageId>
+    <Version>$(SealedFgaVersion)</Version>
+
+    <!-- Package metadata -->
+    <Title>SealedFGA</Title>
+    <Description>A Roslyn analyzer and source generator for improved OpenFGA integration</Description>
+    <Authors>Leonard Sondermann</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Thogsit/master-thesis</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Thogsit/master-thesis</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>roslyn;analyzer;source-generator;openfga;authorization</PackageTags>
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+
+    <!-- Analyzer package specific settings -->
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <DevelopmentDependency>false</DevelopmentDependency>
+    <IncludeSymbols>true</IncludeSymbols>
+    <IncludeSource>true</IncludeSource>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc" Version="$(MicrosoftAspNetCoreMvcVersion)" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="$(MicrosoftAspNetCoreMvcVersion)" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Abstractions" Version="$(MicrosoftAspNetCoreMvcVersion)" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="2.3.0" />
+
+    <!-- Used to parse the model.fga file; only required inside the source generator -->
+    <ProjectReference Include="..\openfga-language\pkg\csharp\OpenFga.Language.csproj" PrivateAssets="all" />
+
+    <!-- Runtime dependencies - these need to not be private so the importing project can use them -->
+    <!--<PackageReference Include="Microsoft.CodeAnalysis" Version="$(MicrosoftCodeAnalysisVersion)" />
+    <PackageReference Include="Microsoft.CodeAnalysis.AnalyzerUtilities" Version="$(MicrosoftCodeAnalysisVersion)" />-->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisVersion)" />
+    <PackageReference Include="OpenFga.Sdk" Version="$(OpenFgaSdkVersion)" GeneratePathProperty="true" />
+    <PackageReference Include="PolySharp" Version="1.15.0" />
+    <PackageReference Include="System.Collections.Immutable" Version="$(SystemCollectionsImmutableVersion)" GeneratePathProperty="true" />
+
+    <!-- Use patched DLL to have access to GlobalFlowStateAnalysis -->
+    <Reference Include="Microsoft.CodeAnalysis.AnalyzerUtilities">
+      <HintPath>..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- This is needed to ensure that the analyzer DLLs are included in the NuGet package.
+       The `Visible` attribute is set to false to prevent them from being visible in the package contents. -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\OpenFga.Language.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgMicrosoft_AspNetCore_Mvc)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgMicrosoft_AspNetCore_Mvc_Abstractions)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgMicrosoft_AspNetCore_Mvc_Core)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgMicrosoft_Data_Sqlite)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgOpenFga_Sdk)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(PkgSystem_Collections_Immutable)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+
+    <!-- Include the analyzer utilities DLL; once for the analyzer, once as a runtime dependency -->
+    <None Include="..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" Pack="true" PackagePath="analyzers/dotnet/cs/Microsoft.CodeAnalysis.AnalyzerUtilities.dll" Visible="false" />
+    <None Include="..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" Pack="true" PackagePath="lib/netstandard2.0/Microsoft.CodeAnalysis.AnalyzerUtilities.dll" Visible="false" />
+
+    <!-- Include README -->
+    <None Include="Readme.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

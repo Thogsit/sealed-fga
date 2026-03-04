@@ -1,0 +1,9 @@
+using System.Threading.Tasks;
+using SealedFga.Attributes;
+
+namespace SealedFga.Sample.Secret;
+
+[ImplementedBy(typeof(SecretService))]
+public interface ISecretService {
+    Task<SecretEntity?> GetSecretByIdAsync(SecretEntityId secretId);
+}

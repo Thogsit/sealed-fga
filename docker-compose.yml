@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:14
+    container_name: sfga-postgres
+    command: postgres -c 'max_connections=100'
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  openfga-init: # creates an OpenFGA model
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    build:
+      dockerfile: openfga-init.DOCKERFILE
+      context: .
+    container_name: sfga-openfga-init
+    network_mode: host
+    environment:
+      - OPENFGA_DATASTORE_ENGINE=postgres
+      - OPENFGA_DATASTORE_URI=postgres://postgres:password@postgres:5432/openfga?sslmode=disable
+    volumes:
+      - ./SealedFga.Sample/model.fga:/model.fga:z
+
+  openfga-migrate:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    image: openfga/openfga:latest
+    container_name: sfga-openfga-migrate
+    environment:
+      - OPENFGA_DATASTORE_ENGINE=postgres
+      - OPENFGA_DATASTORE_URI=postgres://postgres:password@postgres:5432/postgres?sslmode=disable
+    command: migrate
+
+  openfga:
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    image: openfga/openfga:latest
+    container_name: sfga-openfga
+    command: run
+    environment:
+      - OPENFGA_DATASTORE_ENGINE=postgres
+      - OPENFGA_DATASTORE_URI=postgres://postgres:password@postgres:5432/postgres?sslmode=disable
+      - OPENFGA_DATASTORE_MAX_OPEN_CONNS=100 #see postgres container
+      - OPENFGA_PLAYGROUND_ENABLED=true
+    ports:
+      - "8080:8080" #http
+      - "8081:8081" #grpc
+      - "3000:3000" #playground
+      - "2112:2112" #prometheus metrics
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/local/bin/grpc_health_probe",
+          "-addr=openfga:8081"
+        ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
