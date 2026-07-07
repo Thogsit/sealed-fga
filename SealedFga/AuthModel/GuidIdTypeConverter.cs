@@ -46,7 +46,7 @@ public class GuidIdTypeConverter<TId>(Func<Guid, TId> constrFunc, Func<string, T
     ) {
         return value switch {
             TId tValue when destinationType == typeof(string) => tValue.ToString(),
-            TId tValue when destinationType == typeof(Guid) => (Guid) (object) tValue,
+            TId tValue when destinationType == typeof(Guid) => Guid.Parse(tValue.ToString()),
             _ => base.ConvertTo(context, culture, value, destinationType)!,
         };
     }

@@ -147,7 +147,13 @@ public class SealedFgaService(
             cancellationToken
         );
 
-        return objectStrings.Select(IdUtil.ParseId<TObjId>);
+        // OpenFGA returns full "type:id" object strings; strip the type prefix before parsing the raw ID.
+        return objectStrings.Select(obj => {
+                var separatorIndex = obj.IndexOf(':');
+                var rawId = separatorIndex >= 0 ? obj.Substring(separatorIndex + 1) : obj;
+                return IdUtil.ParseId<TObjId>(rawId);
+            }
+        );
     }
 
     /// <summary>
@@ -479,7 +485,7 @@ public class SealedFgaService(
     ///     (<c>type:id</c>) or a userset (<c>type:id#relation</c>); anything else is left untouched so
     ///     that IDs which happen to be substrings of other IDs cannot be corrupted.
     /// </summary>
-    private static string ReplaceIdSegment(string field, string oldId, string newId) {
+    internal static string ReplaceIdSegment(string field, string oldId, string newId) {
         if (field == oldId) {
             return newId;
         }
@@ -495,7 +501,7 @@ public class SealedFgaService(
     /// <summary>
     ///     De-duplicates tuples by their (User, Relation, Object) identity.
     /// </summary>
-    private static List<TupleKey> DistinctTuples(IEnumerable<TupleKey> tuples)
+    internal static List<TupleKey> DistinctTuples(IEnumerable<TupleKey> tuples)
         => tuples
           .GroupBy(t => (t.User, t.Relation, t.Object))
           .Select(g => g.First())

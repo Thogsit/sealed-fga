@@ -1,0 +1,13 @@
+model
+  schema 1.1
+
+type user
+
+type owner
+  relations
+    define Member: [user]
+
+type widget
+  relations
+    define OwnedBy: [owner]
+    define can_view: [user] or Member from OwnedBy

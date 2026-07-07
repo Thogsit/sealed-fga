@@ -89,7 +89,7 @@ public static class SealedFgaOutboxDrainer {
             Object = entry.TupleObject!,
         };
 
-    private static TimeSpan ComputeBackoff(int attempts) {
+    internal static TimeSpan ComputeBackoff(int attempts) {
         // Exponential backoff (2^attempts seconds), capped.
         var seconds = Math.Min(MaxBackoffSeconds, Math.Pow(2, attempts));
         return TimeSpan.FromSeconds(seconds);

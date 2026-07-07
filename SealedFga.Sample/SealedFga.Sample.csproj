@@ -30,7 +30,7 @@
   <!-- TODO: Find a better solution -->
   <ItemGroup>
     <PackageReference Include="Antlr4.Runtime.Standard" OutputItemType="Analyzer" Version="4.13.1" />
-    <Analyzer Include="..\SealedFga\bin\Debug\netstandard2.0\OpenFga.Language.dll" />
+    <Analyzer Include="..\SealedFga\bin\$(Configuration)\netstandard2.0\OpenFga.Language.dll" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgMicrosoft_Data_Sqlite)\lib\netstandard2.0\*.dll" />
 
