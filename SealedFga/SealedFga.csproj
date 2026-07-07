@@ -49,11 +49,6 @@
     <PackageReference Include="OpenFga.Sdk" Version="$(OpenFgaSdkVersion)" GeneratePathProperty="true" />
     <PackageReference Include="PolySharp" Version="1.15.0" />
     <PackageReference Include="System.Collections.Immutable" Version="$(SystemCollectionsImmutableVersion)" GeneratePathProperty="true" />
-
-    <!-- Use patched DLL to have access to GlobalFlowStateAnalysis -->
-    <Reference Include="Microsoft.CodeAnalysis.AnalyzerUtilities">
-      <HintPath>..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
   <!-- This is needed to ensure that the analyzer DLLs are included in the NuGet package.
@@ -67,10 +62,6 @@
     <None Include="$(PkgMicrosoft_Data_Sqlite)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(PkgOpenFga_Sdk)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(PkgSystem_Collections_Immutable)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-
-    <!-- Include the analyzer utilities DLL; once for the analyzer, once as a runtime dependency -->
-    <None Include="..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" Pack="true" PackagePath="analyzers/dotnet/cs/Microsoft.CodeAnalysis.AnalyzerUtilities.dll" Visible="false" />
-    <None Include="..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" Pack="true" PackagePath="lib/netstandard2.0/Microsoft.CodeAnalysis.AnalyzerUtilities.dll" Visible="false" />
 
     <!-- Include README -->
     <None Include="Readme.md" Pack="true" PackagePath="\" />

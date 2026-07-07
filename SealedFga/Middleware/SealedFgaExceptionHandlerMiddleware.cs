@@ -34,8 +34,8 @@ public class SealedFgaExceptionHandlerMiddleware(
     /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task HandleExceptionAsync(HttpContext context, Exception exception) {
         switch (exception) {
-            case FgaAuthorizationException authEx:
-                await HandleFgaAuthorizationException(context, authEx);
+            case FgaForbiddenException authEx:
+                await HandleFgaForbiddenException(context, authEx);
                 break;
 
             case FgaEntityNotFoundException notFoundEx:
@@ -48,11 +48,11 @@ public class SealedFgaExceptionHandlerMiddleware(
     }
 
     /// <summary>
-    ///     Handles <see cref="FgaAuthorizationException" /> and returns HTTP 403 Forbidden.
+    ///     Handles <see cref="FgaForbiddenException" /> and returns HTTP 403 Forbidden.
     /// </summary>
-    private async Task HandleFgaAuthorizationException(
+    private async Task HandleFgaForbiddenException(
         HttpContext context,
-        FgaAuthorizationException exception
+        FgaForbiddenException exception
     ) {
         context.Response.StatusCode = (int) HttpStatusCode.Forbidden;
         context.Response.ContentType = "text/plain";

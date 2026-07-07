@@ -94,7 +94,7 @@ public class SealedFgaEntityModelBinder(Type dbContextType)
         );
 
         if (!isAuthorized) {
-            throw new FgaAuthorizationException(openFgaRawObjectString);
+            throw new FgaForbiddenException(openFgaRawUserString, attr.Relation, openFgaRawObjectString);
         }
 
         // Find Set<T>().FindAsync method using reflection

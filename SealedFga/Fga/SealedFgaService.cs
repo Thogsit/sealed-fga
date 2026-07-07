@@ -8,6 +8,7 @@ using OpenFga.Sdk.Client;
 using OpenFga.Sdk.Client.Model;
 using OpenFga.Sdk.Model;
 using SealedFga.AuthModel;
+using SealedFga.Exceptions;
 using SealedFga.Util;
 using Tuple = OpenFga.Sdk.Model.Tuple;
 
@@ -18,10 +19,8 @@ namespace SealedFga.Fga;
 ///     Handles reads directly; queues writes/deletes for reliable processing.
 /// </summary>
 public class SealedFgaService(
-    OpenFgaClient openFgaClient,
-    IOptions<SealedFgaOptions> options
+    OpenFgaClient openFgaClient
 ) {
-    private readonly SealedFgaOptions _options = options.Value;
 
     #region Strongly-Typed ID Methods
 
@@ -123,7 +122,7 @@ public class SealedFgaService(
     /// <param name="objectId">The object ID (strongly typed)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <typeparam name="TObjId">The object ID type</typeparam>
-    /// <exception cref="UnauthorizedAccessException">Thrown when the authorization check fails</exception>
+    /// <exception cref="FgaForbiddenException">Thrown when the authorization check fails</exception>
     /// <returns>A task that represents the asynchronous operation</returns>
     public async Task EnsureCheckAsync<TObjId>(
         ISealedFgaUser user,
@@ -132,10 +131,8 @@ public class SealedFgaService(
         CancellationToken cancellationToken = new()
     )
         where TObjId : ISealedFgaTypeId<TObjId> {
-        if (await CheckAsync(user, relation, objectId, cancellationToken)) {
-            throw new UnauthorizedAccessException(
-                $"Access denied: User '{user}' does not have relation '{relation}' to object '{objectId}'"
-            );
+        if (!await CheckAsync(user, relation, objectId, cancellationToken)) {
+            throw new FgaForbiddenException(user, relation, objectId);
         }
     }
 
@@ -161,82 +158,6 @@ public class SealedFgaService(
                 Object = objectId.AsOpenFgaIdTupleString(),
             },
             cancellationToken
-        );
-
-    /// <summary>
-    ///     Queues a write operation using strongly typed IDs.
-    /// </summary>
-    /// <param name="user">The user ID (strongly typed)</param>
-    /// <param name="relation">The relation string</param>
-    /// <param name="objectId">The object ID (strongly typed)</param>
-    /// <typeparam name="TObjId">The object ID type</typeparam>
-    public async Task QueueWrite<TObjId>(
-        ISealedFgaUser user,
-        ISealedFgaRelation<TObjId> relation,
-        TObjId objectId
-    )
-        where TObjId : ISealedFgaTypeId<TObjId>
-        => await QueueWrite(new TupleKey {
-                User = user.AsOpenFgaIdTupleString(),
-                Relation = relation.AsOpenFgaString(),
-                Object = objectId.AsOpenFgaIdTupleString(),
-            }
-        );
-
-    /// <summary>
-    ///     Queues a delete operation using strongly typed IDs.
-    /// </summary>
-    /// <param name="user">The user ID (strongly typed)</param>
-    /// <param name="relation">The relation string</param>
-    /// <param name="objectId">The object ID (strongly typed)</param>
-    /// <typeparam name="TObjId">The object ID type</typeparam>
-    public async Task QueueDelete<TObjId>(
-        ISealedFgaUser user,
-        ISealedFgaRelation<TObjId> relation,
-        TObjId objectId
-    )
-        where TObjId : ISealedFgaTypeId<TObjId>
-        => await QueueDelete(new TupleKey {
-                User = user.AsOpenFgaIdTupleString(),
-                Relation = relation.AsOpenFgaString(),
-                Object = objectId.AsOpenFgaIdTupleString(),
-            }
-        );
-
-    /// <summary>
-    ///     Queues multiple write operations using strongly typed IDs.
-    /// </summary>
-    /// <param name="operations">Collection of write operations with strongly typed IDs</param>
-    /// <typeparam name="TObjId">The object ID type</typeparam>
-    public async Task QueueWrites<TObjId>(
-        IEnumerable<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> operations
-    )
-        where TObjId : ISealedFgaTypeId<TObjId>
-        => await QueueWrites(
-            operations.Select(op => new TupleKey {
-                    User = op.User.AsOpenFgaIdTupleString(),
-                    Relation = op.Relation.AsOpenFgaString(),
-                    Object = op.Object.AsOpenFgaIdTupleString(),
-                }
-            )
-        );
-
-    /// <summary>
-    ///     Queues multiple delete operations using strongly typed IDs.
-    /// </summary>
-    /// <param name="operations">Collection of delete operations with strongly typed IDs</param>
-    /// <typeparam name="TObjId">The object ID type</typeparam>
-    public async Task QueueDeletes<TObjId>(
-        IEnumerable<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> operations
-    )
-        where TObjId : ISealedFgaTypeId<TObjId>
-        => await QueueDeletes(
-            operations.Select(op => new TupleKey {
-                    User = op.User.AsOpenFgaIdTupleString(),
-                    Relation = op.Relation.AsOpenFgaString(),
-                    Object = op.Object.AsOpenFgaIdTupleString(),
-                }
-            )
         );
 
     /// <summary>
@@ -295,7 +216,7 @@ public class SealedFgaService(
 
     #endregion
 
-    #region Raw String Methods (for backwards compatibility and edge cases)
+    #region Raw String Methods
 
     /// <summary>
     ///     Reads tuples from OpenFGA directly using raw strings (not queued).
@@ -398,27 +319,6 @@ public class SealedFgaService(
             cancellationToken: cancellationToken
         );
     }
-
-    /// <summary>
-    ///     Queues a write operation using raw strings.
-    /// </summary>
-    /// <param name="tuple">The tuple to write</param>
-    internal Task QueueWrite(TupleKey tuple)
-        => Task.FromResult(_ = Task.Run(() => SafeWriteTupleAsync([tuple])));
-
-    /// <summary>
-    ///     Queues a delete operation using raw strings.
-    /// </summary>
-    /// <param name="tuple">The tuple to delete</param>
-    internal Task QueueDelete(TupleKey tuple)
-        => Task.FromResult(_ = Task.Run(() => SafeDeleteTupleAsync([tuple])));
-
-    /// <summary>
-    ///     Queues multiple write operations using raw strings.
-    /// </summary>
-    /// <param name="tuples">Collection of tuples to write</param>
-    internal Task QueueWrites(IEnumerable<TupleKey> tuples)
-        => Task.FromResult(_ = Task.Run(() => SafeWriteTupleAsync(tuples.ToList())));
 
     /// <summary>
     ///     Queues multiple delete operations using raw strings.

@@ -33,14 +33,9 @@
     <Analyzer Include="..\SealedFga\bin\Debug\netstandard2.0\OpenFga.Language.dll" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgMicrosoft_Data_Sqlite)\lib\netstandard2.0\*.dll" />
-    <PackageReference Include="Microsoft.CodeAnalysis.AnalyzerUtilities" Version="$(MicrosoftCodeAnalysisVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
-    <Analyzer Include="$(PkgMicrosoft_CodeAnalysis_AnalyzerUtilities)\lib\netstandard2.0\*.dll" />
 
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="$(MicrosoftEntityFrameworkCoreVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgMicrosoft_EntityFrameworkCore_Relational)\lib\netstandard2.0\*.dll" />
-    <!-- The patched DLL seems to lead to runtime problems.
-    Instead we use the original one as seen above and disable runtime permission checks by mimicking the IgnoresAccessChecksToAttribute
-    <Analyzer Include="..\..\Microsoft.CodeAnalysis.AnalyzerUtilities.Public.dll" />-->
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Abstractions" Version="$(MicrosoftAspNetCoreMvcVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />

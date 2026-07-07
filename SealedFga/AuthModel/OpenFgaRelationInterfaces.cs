@@ -24,7 +24,7 @@ public abstract class SealedFgaRelation(string val) {
 ///     Used to strongly type enums for representation of OpenFGA relations.
 /// </summary>
 /// <typeparam name="TObjId">The related object entity ID's type.</typeparam>
-public interface ISealedFgaRelation<TObjId>
+public interface ISealedFgaRelation<TObjId> : ISealedFgaRelationWithoutAssociatedType
     where TObjId : ISealedFgaTypeIdWithoutAssociatedIdType {
     /// <summary>
     ///     Returns the relation in the OpenFGA string representation.
@@ -32,3 +32,5 @@ public interface ISealedFgaRelation<TObjId>
     /// <returns>The OpenFGA relation string, e.g. <c>"can_view"</c></returns>
     public string AsOpenFgaString();
 }
+
+public interface ISealedFgaRelationWithoutAssociatedType;
