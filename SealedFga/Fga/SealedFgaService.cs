@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,8 +20,11 @@ namespace SealedFga.Fga;
 ///     Handles reads directly; queues writes/deletes for reliable processing.
 /// </summary>
 public class SealedFgaService(
-    OpenFgaClient openFgaClient
+    OpenFgaClient openFgaClient,
+    IOptions<SealedFgaOptions> options
 ) {
+    private int MaxTuplesPerWrite => Math.Max(1, options.Value.MaxTuplesPerWrite);
+
 
     #region Strongly-Typed ID Methods
 
@@ -170,7 +174,7 @@ public class SealedFgaService(
         )
         where TObjId : ISealedFgaTypeId<TObjId> {
         var checksAsList = checks.ToList();
-        var results = await BatchCheckAsync(
+        var results = (await BatchCheckAsync(
             checksAsList.Select(check => new TupleKey {
                     User = check.User.AsOpenFgaIdTupleString(),
                     Relation = check.Relation.AsOpenFgaString(),
@@ -178,12 +182,18 @@ public class SealedFgaService(
                 }
             ),
             cancellationToken
-        );
+        )).ToList();
 
-        return checksAsList.ToDictionary(
-            check => (check.User, check.Relation, check.Object),
-            check => results.ElementAt(checksAsList.IndexOf(check))
-        );
+        // Map by positional index (not IndexOf, which returns the first match and would mis-map
+        // duplicate checks). Use the indexer so duplicate keys collapse instead of throwing.
+        var resultsByCheck =
+            new Dictionary<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object), bool>();
+        for (var i = 0; i < checksAsList.Count; i++) {
+            var check = checksAsList[i];
+            resultsByCheck[(check.User, check.Relation, check.Object)] = results[i];
+        }
+
+        return resultsByCheck;
     }
 
     #endregion
@@ -210,8 +220,8 @@ public class SealedFgaService(
             Object = rawObject,
         };
 
-        var response = await openFgaClient.Read(request, cancellationToken: cancellationToken);
-        return response.Tuples;
+        // Follow the continuation token so callers see every stored tuple, not just the first page.
+        return await ReadAllPagesAsync(request, cancellationToken);
     }
 
     /// <summary>
@@ -318,8 +328,8 @@ public class SealedFgaService(
             Object = rawObject,
         };
 
-        var response = await openFgaClient.Read(readRequest, cancellationToken: cancellationToken);
-        return response.Tuples.Select(t => t.Key).ToList();
+        var tuples = await ReadAllPagesAsync(readRequest, cancellationToken);
+        return tuples.Select(t => t.Key).ToList();
     }
 
     /// <summary>
@@ -351,14 +361,14 @@ public class SealedFgaService(
             // Read STORED tuples where our object is the user on any object of this type. Using Read
             // (not ListObjects) ensures we only get physically stored tuples, never computed ones that
             // could not actually be deleted.
-            var response = await openFgaClient.Read(
+            var tuples = await ReadAllPagesAsync(
                 new ClientReadRequest {
                     User = rawUser,
                     Object = $"{typeDef.Type}:",
                 },
-                cancellationToken: cancellationToken
+                cancellationToken
             );
-            relationTuples.AddRange(response.Tuples.Select(t => t.Key));
+            relationTuples.AddRange(tuples.Select(t => t.Key));
         }
 
         return relationTuples;
@@ -374,17 +384,49 @@ public class SealedFgaService(
         IEnumerable<TupleKey> checks,
         CancellationToken cancellationToken = new()
     ) {
-        // TODO: OpenFGA .NET SDK does not support batch check operations directly. Switch to them when available.
-        var checkTasks = checks.Select(async check => {
-                try {
-                    return await CheckAsync(check, cancellationToken);
-                } catch (Exception) {
-                    return false;
-                }
-            }
-        );
+        var checksAsList = checks.ToList();
+        if (checksAsList.Count == 0) {
+            return [];
+        }
 
-        return await Task.WhenAll(checkTasks);
+        // Native server-side batch check. Each item carries its ordinal index as a correlation ID
+        // (matching OpenFGA's ^[\w\d-]{1,36}$ constraint) so results — which may come back in any
+        // order — map deterministically back to the input order. The SDK auto-chunks to the server's
+        // batch limit and bounds parallelism internally, so no manual fan-out is needed.
+        var request = new ClientBatchCheckRequest {
+            Checks = checksAsList.Select((check, index) => new ClientBatchCheckItem {
+                    User = check.User,
+                    Relation = check.Relation,
+                    Object = check.Object,
+                    CorrelationId = index.ToString(CultureInfo.InvariantCulture),
+                }
+            ).ToList(),
+        };
+
+        var response = await openFgaClient.BatchCheck(request, cancellationToken: cancellationToken);
+
+        var results = new bool[checksAsList.Count];
+        foreach (var single in response.Result) {
+            // A per-item error must NOT be silently read as "not allowed": that would let a transient
+            // failure masquerade as "tuple does not exist" and corrupt the idempotency logic in
+            // SafeWriteAndDeleteTuplesAsync. Surface it so the operation can be retried.
+            if (single.Error != null) {
+                throw new FgaBatchCheckException(single.Request, single.Error);
+            }
+
+            if (int.TryParse(
+                    single.CorrelationId,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var index
+                )
+                && index >= 0
+                && index < results.Length) {
+                results[index] = single.Allowed;
+            }
+        }
+
+        return results;
     }
 
     #endregion
@@ -465,20 +507,66 @@ public class SealedFgaService(
                             )
                            .ToList();
 
-        // Execute requests
-        if (deleteRequests.Count > 0 || writeRequests.Count > 0) {
-            var writeRequest = new ClientWriteRequest {
-                Deletes = deleteRequests,
-                Writes = writeRequests,
-            };
+        // Execute requests in chunks bounded by MaxTuplesPerWrite. OpenFGA rejects a single Write
+        // transaction above its per-write limit (default 100), so a large delete/ModifyId must be
+        // split. Each chunk is its own transaction and therefore NOT atomic across chunks — safe
+        // here because these operations are idempotent and re-runnable by the outbox drainer.
+        var maxPerWrite = MaxTuplesPerWrite;
+        var deleteIdx = 0;
+        var writeIdx = 0;
+        while (deleteIdx < deleteRequests.Count || writeIdx < writeRequests.Count) {
+            var chunkDeletes = deleteRequests.Skip(deleteIdx).Take(maxPerWrite).ToList();
+            deleteIdx += chunkDeletes.Count;
 
-            await openFgaClient.Write(writeRequest, cancellationToken: ct);
+            // Top the chunk up to the limit with writes.
+            var remaining = maxPerWrite - chunkDeletes.Count;
+            var chunkWrites = remaining > 0
+                ? writeRequests.Skip(writeIdx).Take(remaining).ToList()
+                : [];
+            writeIdx += chunkWrites.Count;
+
+            if (chunkDeletes.Count == 0 && chunkWrites.Count == 0) {
+                break;
+            }
+
+            await openFgaClient.Write(
+                new ClientWriteRequest {
+                    Deletes = chunkDeletes,
+                    Writes = chunkWrites,
+                },
+                cancellationToken: ct
+            );
         }
     }
 
     #endregion Write/Delete Methods
 
     #region Helpers
+
+    /// <summary>
+    ///     Reads <b>all</b> pages of tuples matching a read request, following OpenFGA's
+    ///     continuation token until the store is exhausted. OpenFGA's <c>Read</c> is paginated, so
+    ///     a single call only returns the first page; callers that must see every stored tuple
+    ///     (delete/ModifyId) would otherwise silently truncate large relation sets.
+    /// </summary>
+    private async Task<List<Tuple>> ReadAllPagesAsync(
+        ClientReadRequest request,
+        CancellationToken cancellationToken
+    ) {
+        var allTuples = new List<Tuple>();
+        string? continuationToken = null;
+        do {
+            var response = await openFgaClient.Read(
+                request,
+                new ClientReadOptions { ContinuationToken = continuationToken },
+                cancellationToken
+            );
+            allTuples.AddRange(response.Tuples);
+            continuationToken = response.ContinuationToken;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        return allTuples;
+    }
 
     /// <summary>
     ///     Replaces an exact OpenFGA ID segment. A tuple field is either exactly the ID

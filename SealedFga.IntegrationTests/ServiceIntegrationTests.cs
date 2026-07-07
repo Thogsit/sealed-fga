@@ -96,6 +96,33 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         (await fga.Client.Read(new ClientReadRequest { Object = $"testparent:{parent}" })).Tuples.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task DeleteAllRelations_handles_more_tuples_than_a_single_read_page_and_write_batch() {
+        // 150 tuples on one object exceeds both a single OpenFGA Read page and the per-Write
+        // transaction limit (~100). Exercises paginated reads (find every stored tuple) and chunked
+        // writes (split the delete into multiple transactions).
+        var obj = GuidOf("bigdelete");
+        const int count = 150;
+        var tuples = Enumerable.Range(0, count)
+                               .Select(i => new TupleKey {
+                                    User = $"testuser:bulk-{i}",
+                                    Relation = "can_view",
+                                    Object = $"testobject:{obj}",
+                                })
+                               .ToList();
+
+        // The write itself is >100 operations, so it also exercises write chunking on the write path.
+        await fga.Service.SafeWriteTupleAsync(tuples);
+
+        // Sanity check via paginated read that all 150 landed.
+        var stored = await fga.Service.ListAllRelationsToObjectAsync($"testobject:{obj}");
+        stored.Count.ShouldBe(count);
+
+        await fga.Service.DeleteAllRelationsForRawObjectAsync($"testobject:{obj}", "testobject");
+
+        (await fga.Service.ListAllRelationsToObjectAsync($"testobject:{obj}")).ShouldBeEmpty();
+    }
+
     // Deterministic, unique GUID string per logical key so tests don't collide in the shared store.
     private static string GuidOf(string seed) {
         var bytes = new byte[16];

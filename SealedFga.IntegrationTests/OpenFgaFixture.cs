@@ -7,6 +7,7 @@ using DotNet.Testcontainers.Containers;
 using OpenFga.Sdk.Client;
 using OpenFga.Sdk.Client.Model;
 using OpenFga.Sdk.Model;
+using SealedFga;
 using SealedFga.Fga;
 using SealedFga.Tests.Support;
 using SealedFga.Util;
@@ -58,7 +59,7 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
     public string ApiUrl { get; private set; } = null!;
     public string StoreId { get; private set; } = null!;
     public string AuthorizationModelId { get; private set; } = null!;
-    public SealedFgaService Service => new(Client);
+    public SealedFgaService Service => new(Client, Microsoft.Extensions.Options.Options.Create(new SealedFgaOptions()));
 
     public async Task InitializeAsync() {
         await _container.StartAsync();

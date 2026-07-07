@@ -3,7 +3,7 @@
     <SealedFgaVersion>0.0.29</SealedFgaVersion>
     <MicrosoftDataSqliteVersion>9.0.9</MicrosoftDataSqliteVersion>
     <MicrosoftCodeAnalysisVersion>4.14.0</MicrosoftCodeAnalysisVersion>
-    <OpenFgaSdkVersion>0.8.0</OpenFgaSdkVersion>
+    <OpenFgaSdkVersion>0.10.0</OpenFgaSdkVersion>
     <MicrosoftEntityFrameworkCoreVersion>9.0.9</MicrosoftEntityFrameworkCoreVersion>
     <MicrosoftExtensionsHostingAbstractionsVersion>8.0.1</MicrosoftExtensionsHostingAbstractionsVersion>
     <MicrosoftAspNetCoreMvcVersion>2.3.0</MicrosoftAspNetCoreMvcVersion>
