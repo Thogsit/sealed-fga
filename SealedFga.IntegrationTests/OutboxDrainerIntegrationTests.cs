@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using OpenFga.Sdk.Client;
 using OpenFga.Sdk.Client.Model;
+using SealedFga;
 using SealedFga.Fga;
 using SealedFga.Fga.Outbox;
 using SealedFga.Tests.Support;
@@ -79,11 +80,14 @@ public class OutboxDrainerIntegrationTests(OpenFgaFixture fga) {
         await ctx.SaveChangesAsync();
 
         // A service pointed at a dead endpoint so the apply deterministically fails.
-        var deadService = new SealedFgaService(new OpenFgaClient(new ClientConfiguration {
-            ApiUrl = "http://127.0.0.1:1",
-            StoreId = fga.StoreId,
-            AuthorizationModelId = fga.AuthorizationModelId,
-        }));
+        var deadService = new SealedFgaService(
+            new OpenFgaClient(new ClientConfiguration {
+                ApiUrl = "http://127.0.0.1:1",
+                StoreId = fga.StoreId,
+                AuthorizationModelId = fga.AuthorizationModelId,
+            }),
+            Microsoft.Extensions.Options.Options.Create(new SealedFgaOptions())
+        );
 
         var processed = await SealedFgaOutboxDrainer.DrainOnceAsync(ctx, deadService, batchSize: 10, maxAttempts: 5);
 

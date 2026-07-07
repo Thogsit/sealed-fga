@@ -48,7 +48,7 @@
     <Analyzer Include="$(PkgSystem_IO_Pipelines)\lib\netstandard2.0\*.dll" />
     <PackageReference Include="System.Text.Json" Version="9.0.9" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgSystem_Text_Json)\lib\netstandard2.0\*.dll" />
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.9" OutputItemType="Analyzer" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.3" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgMicrosoft_Bcl_AsyncInterfaces)\lib\netstandard2.0\*.dll" />
     <PackageReference Include="Microsoft.CodeAnalysis" Version="$(MicrosoftCodeAnalysisVersion)" OutputItemType="Analyzer" GeneratePathProperty="true" />
     <Analyzer Include="$(PkgMicrosoft_CodeAnalysis)\analyzers\dotnet\cs\*.dll" />

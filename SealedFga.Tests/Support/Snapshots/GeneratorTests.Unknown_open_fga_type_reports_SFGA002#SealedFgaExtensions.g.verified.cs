@@ -76,6 +76,9 @@ public static class SealedFgaExtensions {
             }
         );
 
+        // Always register the options so IOptions<SealedFgaOptions> resolves (to defaults
+        // when no configure action is supplied); SealedFgaService depends on it.
+        services.AddOptions<SealedFgaOptions>();
         if (configure != null) {
             services.Configure(configure);
         }

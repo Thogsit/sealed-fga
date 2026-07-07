@@ -111,13 +111,19 @@ Key methods:
 - `EnsureCheckAsync(user, relation, objectId)` → throws `FgaForbiddenException` when the check
   **fails**.
 - `ListObjectsAsync(user, relation)` → `IEnumerable<TObjId>` (maps returned strings back to strong IDs).
-- `BatchCheckAsync(checks)` → dictionary keyed by `(user, relation, object)`; currently client-side
-  parallel `CheckAsync` calls (the .NET SDK has no native batch check).
+- `BatchCheckAsync(checks)` → dictionary keyed by `(user, relation, object)`; uses the OpenFGA SDK's
+  **native server-side batch check** (auto-chunked to the server batch limit, bounded parallelism).
+  A per-item error surfaces as `FgaBatchCheckException` rather than being collapsed to `false`, so a
+  transient failure can't masquerade as "tuple does not exist".
 - `ModifyIdAsync(oldId, newId)` — rewrites every tuple referencing an entity's old ID to the new ID.
 - `DeleteObjectFromOpenFgaIncludingAllRelations(objId)` — removes every tuple where the object
   appears as `Object` or as `User`.
 - `SafeWriteTupleAsync` / `SafeDeleteTupleAsync` / `SafeWriteAndDeleteTuplesAsync` — **idempotent**:
   batch-check existence first, only write tuples that don't exist and only delete tuples that do.
+  Large operations are automatically split into chunks of `MaxTuplesPerWrite` (default 100) to stay
+  under OpenFGA's per-transaction write limit; chunks are separate transactions (safe because the
+  operations are idempotent). Relation reads used by delete/`ModifyId` follow OpenFGA's continuation
+  token across all pages (`ReadAllPagesAsync`), so large relation sets are no longer truncated.
 
 Reads are performed directly. Writes/deletes are **not** called from the sync path directly;
 the sync path records them into the outbox (see below) and the background drainer applies them
@@ -196,12 +202,8 @@ the drainer, a rolled-back transaction never leaks tuples to OpenFGA, and transi
 outages are retried rather than silently dropped.
 
 ### Known limitations / backlog
-- **Pagination** — `ListAllRelationsToObjectAsync` / `ListAllRelationsFromUserAsync` read only
-  the first OpenFGA `Read` page; large relation sets are truncated during delete/`ModifyId`.
-- **Write chunking** — no chunking to OpenFGA's per-transaction write limit (~100 tuples).
-- **`BatchCheckAsync`** swallows check errors as `false` (can mask failures) and fans out
-  unbounded parallel `Check` calls.
-- The recursion guard is `ThreadLocal` (fine while the processor is synchronous).
+- The recursion guard is `ThreadLocal` (fine while the processor is synchronous; would need
+  revisiting if the processor ever becomes async and resumes on a different thread).
 
 ## DI / wiring API
 
@@ -217,7 +219,8 @@ All of these are **generated** into the consumer's assembly by `SealedFgaExtensi
 
 `SealedFgaOptions` (`SealedFgaOptions.cs`) controls the outbox drainer: `QueueFgaServiceOperations`
 (default `true`) gates whether the background drainer runs; `OutboxPollInterval`,
-`OutboxBatchSize`, and `OutboxMaxAttempts` tune it. `Settings.cs` holds the namespace constants
+`OutboxBatchSize`, and `OutboxMaxAttempts` tune it. `MaxTuplesPerWrite` (default 100) bounds the
+number of tuple operations per OpenFGA `Write` transaction. `Settings.cs` holds the namespace constants
 the generator uses to build `using` directives.
 
 ## Packaging quirks — `SealedFga.csproj`
