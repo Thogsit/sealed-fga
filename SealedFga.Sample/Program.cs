@@ -53,10 +53,9 @@ public static class Program {
             }
         );
 
-        // Configure SealedFGA
-        builder.Services.ConfigureSealedFga<SealedFgaSampleContext>(
-            opt => opt.QueueFgaServiceOperations = false
-        );
+        // Configure SealedFGA. The background outbox drainer runs by default
+        // (SealedFgaOptions.QueueFgaServiceOperations = true).
+        builder.Services.ConfigureSealedFga<SealedFgaSampleContext>();
 
         var app = builder.Build();
 

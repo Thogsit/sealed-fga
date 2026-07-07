@@ -38,6 +38,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Abstractions" Version="$(MicrosoftAspNetCoreMvcVersion)" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="2.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(MicrosoftExtensionsHostingAbstractionsVersion)" />
 
     <!-- Used to parse the model.fga file; only required inside the source generator -->
     <ProjectReference Include="..\openfga-language\pkg\csharp\OpenFga.Language.csproj" PrivateAssets="all" />

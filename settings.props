@@ -5,6 +5,7 @@
     <MicrosoftCodeAnalysisVersion>4.14.0</MicrosoftCodeAnalysisVersion>
     <OpenFgaSdkVersion>0.8.0</OpenFgaSdkVersion>
     <MicrosoftEntityFrameworkCoreVersion>9.0.9</MicrosoftEntityFrameworkCoreVersion>
+    <MicrosoftExtensionsHostingAbstractionsVersion>8.0.1</MicrosoftExtensionsHostingAbstractionsVersion>
     <MicrosoftAspNetCoreMvcVersion>2.3.0</MicrosoftAspNetCoreMvcVersion>
     <SystemCollectionsImmutableVersion>9.0.0</SystemCollectionsImmutableVersion>
   </PropertyGroup>

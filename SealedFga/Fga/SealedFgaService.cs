@@ -49,68 +49,34 @@ public class SealedFgaService(
     /// </summary>
     /// <param name="objId">The ID to fully delete all related relations of.</param>
     /// <typeparam name="TObjId">The type of the ID.</typeparam>
-    public async Task DeleteObjectFromOpenFgaIncludingAllRelations<TObjId>(TObjId objId)
+    public Task DeleteObjectFromOpenFgaIncludingAllRelations<TObjId>(TObjId objId)
         where TObjId : ISealedFgaTypeId<TObjId>
-    {
-        // Read relations TO objId
-        var readSubjRelationsBody = new ClientReadRequest
-        {
-            Object = objId.AsOpenFgaIdTupleString(), // Returns ALL relations of any type to object objId
-        };
-        var readSubjRelationsResp = await openFgaClient.Read(readSubjRelationsBody);
-        var relationTuples = readSubjRelationsResp.Tuples;
-
-        // Retrieve possible relations the object can have as a subject to other objects
-        var authModel = await openFgaClient.ReadAuthorizationModel();
-        var typeDefinitions = authModel.AuthorizationModel!.TypeDefinitions;
-        var listObjectsRequests = new List<ClientListObjectsRequest>();
-        foreach (var typeDef in typeDefinitions)
-        {
-            foreach (var relationDef in typeDef.Metadata!.Relations!)
-            {
-                var directlyRelatedUserTypes = relationDef.Value.DirectlyRelatedUserTypes!;
-                foreach (var relationRef in directlyRelatedUserTypes) {
-                    if (relationRef.Type == IdUtil.GetNameByIdType(typeof(TObjId)))
-                    {
-                        listObjectsRequests.Add(
-                            new ClientListObjectsRequest
-                            {
-                                User = objId.AsOpenFgaIdTupleString(),
-                                Relation = relationDef.Key,
-                                Type = typeDef.Type,
-                            }
-                        );
-                    }
-                }
-            }
-        }
-
-        // Retrieve all objects we're related to and add the relations to our deletion list
-        foreach (var listObjectsBody in listObjectsRequests)
-        {
-            var listObjectsResponse = await openFgaClient.ListObjects(listObjectsBody);
-            relationTuples.AddRange(
-                listObjectsResponse.Objects.Select(obj => new Tuple
-                {
-                    Key = new TupleKey
-                    {
-                        User = objId.AsOpenFgaIdTupleString(),
-                        Relation = listObjectsBody.Relation,
-                        Object = obj,
-                    },
-                })
-            );
-        }
-
-        // Nuke all relations from and to objId; effectively deleting the object
-        await QueueDeletes(
-            relationTuples.Select(tuple => new TupleKey
-            {
-                User = tuple.Key.User,
-                Relation = tuple.Key.Relation,
-                Object = tuple.Key.Object,
-            })
+        => DeleteAllRelationsForRawObjectAsync(
+            objId.AsOpenFgaIdTupleString(),
+            IdUtil.GetNameByIdType(typeof(TObjId))
         );
+
+    /// <summary>
+    ///     Deletes every <b>stored</b> relationship tuple in which the given raw object appears, either
+    ///     as the object or as the user/subject. Used by the outbox drainer to purge a deleted entity.
+    /// </summary>
+    /// <param name="rawObjectId">The object's OpenFGA tuple string (<c>type:id</c>).</param>
+    /// <param name="typeName">The object's OpenFGA type name.</param>
+    /// <param name="cancellationToken">A token to observe while waiting for the task to complete.</param>
+    public async Task DeleteAllRelationsForRawObjectAsync(
+        string rawObjectId,
+        string typeName,
+        CancellationToken cancellationToken = new()
+    ) {
+        // Stored tuples where the object appears as the object ...
+        var relationTuples = await ListAllRelationsToObjectAsync(rawObjectId, cancellationToken);
+        // ... and stored tuples where it appears as the user/subject.
+        relationTuples.AddRange(
+            await ListAllRelationsFromUserAsync(rawObjectId, typeName, cancellationToken)
+        );
+
+        // Nuke all relations from and to the object; effectively deleting it from OpenFGA.
+        await SafeDeleteTupleAsync(DistinctTuples(relationTuples), cancellationToken);
     }
 
 
@@ -278,13 +244,12 @@ public class SealedFgaService(
         string typeName,
         CancellationToken cancellationToken = new()
     ) {
-        // Find relations TO the old ID
+        // Find stored relations TO the old ID and FROM the old ID, de-duplicated (a self-referential
+        // tuple would otherwise appear in both lists).
         var oldRelationTuples = await ListAllRelationsToObjectAsync(
             rawOldId,
             cancellationToken
         );
-
-        // Find relations FROM the old ID
         oldRelationTuples.AddRange(
             await ListAllRelationsFromUserAsync(
                 rawOldId,
@@ -292,68 +257,19 @@ public class SealedFgaService(
                 cancellationToken
             )
         );
+        oldRelationTuples = DistinctTuples(oldRelationTuples);
 
-        // Build new relations to replace old ones with
+        // Build the replacement tuples, rewriting only exact ID segments (never substrings).
         var newRelationTuples = oldRelationTuples.Select(tuple => new TupleKey {
-                User = tuple.User.Replace(rawOldId, rawNewId),
+                User = ReplaceIdSegment(tuple.User, rawOldId, rawNewId),
                 Relation = tuple.Relation,
-                Object = tuple.Object.Replace(rawOldId, rawNewId),
+                Object = ReplaceIdSegment(tuple.Object, rawOldId, rawNewId),
             }
         ).ToList();
 
-        // Update relations to OpenFGA
-        await openFgaClient.Write(new ClientWriteRequest {
-                Deletes = oldRelationTuples.Select(tuple => new ClientTupleKeyWithoutCondition {
-                        User = tuple.User,
-                        Relation = tuple.Relation,
-                        Object = tuple.Object,
-                    }
-                ).ToList(),
-                Writes = newRelationTuples.Select(tuple => new ClientTupleKey {
-                        User = tuple.User,
-                        Relation = tuple.Relation,
-                        Object = tuple.Object,
-                    }
-                ).ToList(),
-            },
-            cancellationToken: cancellationToken
-        );
+        // Idempotent write of the new tuples + delete of the old ones, in a single OpenFGA transaction.
+        await SafeWriteAndDeleteTuplesAsync(newRelationTuples, oldRelationTuples, cancellationToken);
     }
-
-    /// <summary>
-    ///     Queues multiple delete operations using raw strings.
-    /// </summary>
-    /// <param name="tuples">Collection of tuples to delete</param>
-    internal Task QueueDeletes(IEnumerable<TupleKey> tuples)
-        => Task.FromResult(_ = Task.Run(() => SafeDeleteTupleAsync(tuples.ToList())));
-
-    /// <summary>
-    ///     Queues a modify ID operation to replace all relations with an old ID with a new ID.
-    /// </summary>
-    /// <param name="oldId">The previous ID to be replaced</param>
-    /// <param name="newId">The new ID to replace the old one</param>
-    /// <param name="cancellationToken">Cancellation token to cancel the operation</param>
-    /// <typeparam name="TId">The type of the IDs</typeparam>
-    /// <returns>A task that represents the asynchronous operation</returns>
-    internal Task QueueModifyId<TId>(
-        TId oldId,
-        TId newId,
-        CancellationToken cancellationToken = new()
-    ) where TId : ISealedFgaTypeId<TId>
-        => Task.FromResult(_ = Task.Run(() => ModifyIdAsync(oldId, newId, cancellationToken), cancellationToken));
-
-    /// <summary>
-    ///     Queues multiple write and delete operations for processing.
-    /// </summary>
-    /// <param name="writes">The collection of tuple keys to be written.</param>
-    /// <param name="deletes">The collection of tuple keys to be deleted.</param>
-    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    internal Task QueueWriteAndDeletes(
-        IEnumerable<TupleKey> writes,
-        IEnumerable<TupleKey> deletes,
-        CancellationToken cancellationToken = new()
-    ) => Task.FromResult(_ = Task.Run(() => SafeWriteAndDeleteTuplesAsync(writes.ToList(), deletes.ToList(), cancellationToken), cancellationToken));
 
     /// <summary>
     ///     Lists objects that a user has a specific relation to using raw strings.
@@ -412,42 +328,31 @@ public class SealedFgaService(
         string userTypeName,
         CancellationToken cancellationToken = new()
     ) {
-        // Retrieve possible relations the object can have as a subject to other objects
+        // Determine which object types can reference our type as a directly related user.
         var authModel = await openFgaClient.ReadAuthorizationModel(cancellationToken: cancellationToken);
         var typeDefinitions = authModel.AuthorizationModel!.TypeDefinitions;
-        var listObjectsRequests = new List<ClientListObjectsRequest>();
-        foreach (var typeDef in typeDefinitions) {
-            foreach (var relationDef in typeDef.Metadata!.Relations!) {
-                var directlyRelatedUserTypes = relationDef.Value.DirectlyRelatedUserTypes!;
-                foreach (var relationRef in directlyRelatedUserTypes) {
-                    if (relationRef.Type == userTypeName) {
-                        listObjectsRequests.Add(
-                            new ClientListObjectsRequest {
-                                User = rawUser,
-                                Relation = relationDef.Key,
-                                Type = typeDef.Type,
-                            }
-                        );
-                    }
-                }
-            }
-        }
 
-        // Retrieve all objects we're related to and add the relations to our deletion list
         var relationTuples = new List<TupleKey>();
-        foreach (var listObjectsBody in listObjectsRequests) {
-            var listObjectsResponse = await openFgaClient.ListObjects(
-                listObjectsBody,
+        foreach (var typeDef in typeDefinitions) {
+            var referencesOurType = typeDef.Metadata?.Relations?.Values
+                                           .Any(rel => rel.DirectlyRelatedUserTypes?
+                                                          .Any(rt => rt.Type == userTypeName) ?? false)
+                                    ?? false;
+            if (!referencesOurType) {
+                continue;
+            }
+
+            // Read STORED tuples where our object is the user on any object of this type. Using Read
+            // (not ListObjects) ensures we only get physically stored tuples, never computed ones that
+            // could not actually be deleted.
+            var response = await openFgaClient.Read(
+                new ClientReadRequest {
+                    User = rawUser,
+                    Object = $"{typeDef.Type}:",
+                },
                 cancellationToken: cancellationToken
             );
-            relationTuples.AddRange(
-                listObjectsResponse.Objects.Select(obj => new TupleKey {
-                        User = rawUser,
-                        Relation = listObjectsBody.Relation,
-                        Object = obj,
-                    }
-                )
-            );
+            relationTuples.AddRange(response.Tuples.Select(t => t.Key));
         }
 
         return relationTuples;
@@ -566,4 +471,35 @@ public class SealedFgaService(
     }
 
     #endregion Write/Delete Methods
+
+    #region Helpers
+
+    /// <summary>
+    ///     Replaces an exact OpenFGA ID segment. A tuple field is either exactly the ID
+    ///     (<c>type:id</c>) or a userset (<c>type:id#relation</c>); anything else is left untouched so
+    ///     that IDs which happen to be substrings of other IDs cannot be corrupted.
+    /// </summary>
+    private static string ReplaceIdSegment(string field, string oldId, string newId) {
+        if (field == oldId) {
+            return newId;
+        }
+
+        // Userset subject form: "type:id#relation".
+        if (field.StartsWith(oldId + "#", StringComparison.Ordinal)) {
+            return newId + field.Substring(oldId.Length);
+        }
+
+        return field;
+    }
+
+    /// <summary>
+    ///     De-duplicates tuples by their (User, Relation, Object) identity.
+    /// </summary>
+    private static List<TupleKey> DistinctTuples(IEnumerable<TupleKey> tuples)
+        => tuples
+          .GroupBy(t => (t.User, t.Relation, t.Object))
+          .Select(g => g.First())
+          .ToList();
+
+    #endregion Helpers
 }

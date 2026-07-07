@@ -56,6 +56,7 @@ public static class SealedFgaExtensionsGenerator {
                 {
                     services.AddScoped<SealedFgaService>();
                     services.AddScoped<SealedFgaSaveChangesInterceptor>();
+                    services.AddHostedService<SealedFgaOutboxHostedService<TDbContext>>();
                     services.AddControllers(options => {
                             options.ModelBinderProviders.Insert(0, new SealedFgaModelBinderProvider<TDbContext>());
                         }
@@ -77,6 +78,10 @@ public static class SealedFgaExtensionsGenerator {
                     var interceptor = serviceProvider.GetRequiredService<SealedFgaSaveChangesInterceptor>();
                     options.AddInterceptors(interceptor);
 
+                    // Auto-register the SealedFGA outbox entity into the model without the consumer
+                    // having to touch their OnModelCreating.
+                    options.ReplaceService<IModelCustomizer, SealedFgaModelCustomizer>();
+
                     return options;
                 }
 
@@ -93,12 +98,14 @@ public static class SealedFgaExtensionsGenerator {
             new HashSet<string>([
                     "Microsoft.AspNetCore.Builder",
                     "Microsoft.EntityFrameworkCore",
+                    "Microsoft.EntityFrameworkCore.Infrastructure",
                     "Microsoft.EntityFrameworkCore.Storage.ValueConversion",
                     "Microsoft.Extensions.DependencyInjection",
                     "Microsoft.Extensions.Options",
                     Settings.AttributesNamespace,
                     Settings.ModelBinderNamespace,
                     Settings.FgaNamespace,
+                    Settings.FgaNamespace + ".Outbox",
                     Settings.MiddlewareNamespace,
                     "System",
                     "System.Collections.Generic",

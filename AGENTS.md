@@ -30,10 +30,12 @@ emits thin glue into the consuming project, and the real logic lives in the runt
    (`[FgaAuthorize]`, `[FgaAuthorizeList]`) enforce the permission check *before* an entity is
    ever handed to a controller action, and an exception→HTTP middleware maps failures to 403/404.
 
-3. **Unidirectional DB→OpenFGA auth-state sync.** Annotate a foreign-key property with
-   `[SealedFgaRelation]` and an EF Core `SaveChanges` interceptor automatically mirrors entity
-   inserts/updates/deletes into the corresponding OpenFGA relationship tuples. The database is
-   the source of truth; nothing is written back from OpenFGA into the database.
+3. **Unidirectional DB→OpenFGA auth-state sync (transactional outbox).** Annotate a
+   foreign-key property with `[SealedFgaRelation]` and an EF Core `SaveChanges` interceptor
+   records the intended OpenFGA tuple changes into a `SealedFgaOutbox` table **in the same DB
+   transaction** as the entity changes; a background drainer then applies them to OpenFGA with
+   retries. The database is the source of truth; nothing is written back from OpenFGA into the
+   database, and nothing reaches OpenFGA unless the originating transaction committed.
 
 ## Repository layout
 

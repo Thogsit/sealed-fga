@@ -119,8 +119,9 @@ Key methods:
 - `SafeWriteTupleAsync` / `SafeDeleteTupleAsync` / `SafeWriteAndDeleteTuplesAsync` — **idempotent**:
   batch-check existence first, only write tuples that don't exist and only delete tuples that do.
 
-Reads are performed directly; writes/deletes are enqueued as fire-and-forget background tasks
-(`QueueWriteAndDeletes`, `QueueDeletes`, `QueueModifyId`).
+Reads are performed directly. Writes/deletes are **not** called from the sync path directly;
+the sync path records them into the outbox (see below) and the background drainer applies them
+via the idempotent `Safe*` methods / `ModifyIdAsync` / `DeleteAllRelationsForRawObjectAsync`.
 
 ## Runtime: secure-by-design model binders — `ModelBinder/`
 
@@ -148,27 +149,59 @@ providers) supplies the concrete `DbContext` type.
 Both exceptions live in `Exceptions/`. Since the binders throw during model binding and the
 middleware sits in front, unauthorized requests never reach the controller.
 
-## Auth-state sync (DB → OpenFGA, unidirectional)
+## Auth-state sync (DB → OpenFGA, unidirectional, transactional outbox)
 
-Three cooperating pieces keep OpenFGA tuples in sync with EF Core entity changes:
+The sync is a **transactional outbox**. Producing outbox rows happens inside the DB
+transaction; applying them to OpenFGA happens afterwards in the background.
+
+Producer side (in the consumer's `SaveChanges` transaction):
 
 1. **`Attributes/SealedFgaRelationAttribute`** — put `[SealedFgaRelation("OwnedBy", targetType)]`
    on an entity property that holds a foreign-key strong ID. `TargetType` (`Object` | `User`)
    decides which side of the tuple the FK sits on.
-2. **The generated interceptor** — fires on `SavingChanges` / `SavingChangesAsync` (before commit),
-   guarded against re-entrancy, and calls the processor.
+2. **The generated interceptor** — fires on `SavingChanges` / `SavingChangesAsync` (before
+   commit — deliberately, so the rows land in the same transaction), guarded against
+   re-entrancy, and calls the processor.
 3. **`Fga/SealedFgaSaveChangesProcessor.cs`** — scans `ChangeTracker.Entries()` for entities
-   implementing `ISealedFgaType<>` in state `Added | Modified | Deleted`:
-   - **Added** → build and write the relationship tuple.
-   - **Modified** → delete the old tuple and write the new one; if the primary key changed,
-     `QueueModifyId` rewrites all tuples referencing the old ID.
-   - **Deleted** → `DeleteObjectFromOpenFgaIncludingAllRelations` removes every tuple for the entity.
+   implementing `ISealedFgaType<>` in state `Added | Modified | Deleted` and **appends
+   `SealedFgaOutboxEntry` rows** (via `context.Set<SealedFgaOutboxEntry>().AddRange(...)`) — it
+   does **not** call OpenFGA:
+   - **Added** → `WriteTuple` row.
+   - **Modified** → `DeleteTuple` (old) + `WriteTuple` (new); change is detected **by value**
+     (`Equals`), not reference. If the primary key changed, a single `ModifyId` row is emitted
+     instead (and per-property emission is skipped, to avoid double-handling).
+   - **Deleted** → one `DeleteAllForObject` row.
    `ExtractTupleStrings` orients the tuple by `TargetType`: `Object` means the FK entity is the
-   tuple's `user` and this entity is the `object`; `User` swaps them.
+   tuple's `user` and this entity is the `object`; `User` swaps them. Tuple strings come from
+   `ISealedFgaUser.AsOpenFgaIdTupleString()` — no reflection.
 
-The direction is strictly **DB → OpenFGA**. The database is the source of truth; nothing writes
-back from OpenFGA into the database. Writes are queued as background tasks initiated during
-`SavingChanges`, so the FGA sync is not transactionally atomic with the DB commit.
+Consumer side (background):
+
+4. **`Fga/Outbox/SealedFgaOutboxHostedService<TDbContext>`** — a `BackgroundService` (auto-
+   registered by `ConfigureSealedFga<TDbContext>()`) that polls and calls
+   **`Fga/Outbox/SealedFgaOutboxDrainer`** in its own DI scope. The drainer applies pending
+   rows to OpenFGA in strict `Id` order via the idempotent service methods, marking each
+   processed or recording `Attempts`/`NextAttemptUtc` (exponential backoff) / `LastError` on
+   failure. Retention/inspection: processed rows stay in the table.
+
+Model registration: **`Fga/Outbox/SealedFgaModelCustomizer`** (an `IModelCustomizer` decorator
+wired via `options.ReplaceService<IModelCustomizer, SealedFgaModelCustomizer>()` inside the
+generated `AddSealedFga`) adds the `SealedFgaOutboxEntry` entity to the model automatically —
+the consumer does not touch `OnModelCreating`. **On relational providers the consumer must add
+an EF migration** for the new `SealedFgaOutbox` table.
+
+The direction is strictly **DB → OpenFGA**. The database is the source of truth. Because the
+outbox rows commit atomically with the entity changes and OpenFGA is only touched afterward by
+the drainer, a rolled-back transaction never leaks tuples to OpenFGA, and transient OpenFGA
+outages are retried rather than silently dropped.
+
+### Known limitations / backlog
+- **Pagination** — `ListAllRelationsToObjectAsync` / `ListAllRelationsFromUserAsync` read only
+  the first OpenFGA `Read` page; large relation sets are truncated during delete/`ModifyId`.
+- **Write chunking** — no chunking to OpenFGA's per-transaction write limit (~100 tuples).
+- **`BatchCheckAsync`** swallows check errors as `false` (can mask failures) and fans out
+  unbounded parallel `Check` calls.
+- The recursion guard is `ThreadLocal` (fine while the processor is synchronous).
 
 ## DI / wiring API
 
@@ -182,9 +215,10 @@ All of these are **generated** into the consumer's assembly by `SealedFgaExtensi
   registers each generated ID type's `EfCoreValueConverter` so strong IDs persist as their primitive.
 - `IApplicationBuilder.UseSealedFga()` — installs `SealedFgaExceptionHandlerMiddleware`.
 
-`SealedFgaOptions` (`SealedFgaOptions.cs`) currently exposes `QueueFgaServiceOperations`
-(documented as not-yet-wired). `Settings.cs` holds the namespace constants the generator uses to
-build `using` directives.
+`SealedFgaOptions` (`SealedFgaOptions.cs`) controls the outbox drainer: `QueueFgaServiceOperations`
+(default `true`) gates whether the background drainer runs; `OutboxPollInterval`,
+`OutboxBatchSize`, and `OutboxMaxAttempts` tune it. `Settings.cs` holds the namespace constants
+the generator uses to build `using` directives.
 
 ## Packaging quirks — `SealedFga.csproj`
 

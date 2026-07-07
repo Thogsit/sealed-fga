@@ -8,7 +8,7 @@ public static class SealedFgaSaveChangesInterceptorGenerator {
         => new(
             "SealedFgaSaveChangesInterceptor.g.cs",
             """
-            public class SealedFgaSaveChangesInterceptor(IServiceProvider serviceProvider) : SaveChangesInterceptor
+            public class SealedFgaSaveChangesInterceptor : SaveChangesInterceptor
             {
                 private static readonly ThreadLocal<bool> IsProcessing = new();
 
@@ -25,7 +25,7 @@ public static class SealedFgaSaveChangesInterceptorGenerator {
 
                     try {
                         IsProcessing.Value = true;
-                        var processor = new SealedFgaSaveChangesProcessor(serviceProvider);
+                        var processor = new SealedFgaSaveChangesProcessor();
                         processor.ProcessSealedFgaChanges(context);
                     } finally {
                         IsProcessing.Value = false;
