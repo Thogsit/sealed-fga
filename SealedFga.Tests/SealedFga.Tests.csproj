@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework: gives us Http/MVC types the runtime library is built against,
+       exactly as a real consumer app would resolve them. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(MicrosoftNetTestSdkVersion)" />
+    <PackageReference Include="xunit" Version="$(XunitVersion)" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="$(XunitRunnerVisualStudioVersion)" />
+    <PackageReference Include="Shouldly" Version="$(ShouldlyVersion)" />
+    <PackageReference Include="Verify.Xunit" Version="$(VerifyXunitVersion)" />
+    <PackageReference Include="Verify.SourceGenerators" Version="$(VerifySourceGeneratorsVersion)" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisVersion)" />
+
+    <!-- EF Core 9: the version a real consumer runs on (the library itself targets a much older
+         EF API surface — running the tests against EF 9 also exercises that signature-drift path). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Runtime types under test. Referenced as a normal library (NOT as an analyzer): we exercise
+         the compiled runtime behaviour, and instantiate the generator directly in the Tier B tests. -->
+    <ProjectReference Include="..\SealedFga\SealedFga.csproj" />
+    <!-- The generator needs the vendored DSL parser at runtime to parse model.fga (SealedFga marks it
+         PrivateAssets=all, so reference it here explicitly for the Tier B generator-driver tests). -->
+    <ProjectReference Include="..\openfga-language\pkg\csharp\OpenFga.Language.csproj" />
+  </ItemGroup>
+</Project>
