@@ -12,6 +12,12 @@ public class SecretEntity : ISealedFgaType<SecretEntityId> {
     [SealedFgaRelation(nameof(SecretEntityIdGroups.OwnedBy))]
     public AgencyEntityId OwningAgencyId { get; set; } = null!;
 
+    /// <summary>
+    ///     The owning agency navigation. Null unless eager-loaded via
+    ///     <c>[FgaAuthorize(..., Include = [nameof(SecretEntityIncludes.OwningAgency)])]</c>.
+    /// </summary>
+    public AgencyEntity? OwningAgency { get; set; }
+
     public required string Value { get; set; }
 
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]

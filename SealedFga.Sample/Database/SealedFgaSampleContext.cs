@@ -50,6 +50,17 @@ public class SealedFgaSampleContext(DbContextOptions<SealedFgaSampleContext> opt
         await SaveChangesAsync();
     }
 
+    protected override void OnModelCreating(ModelBuilder modelBuilder) {
+        base.OnModelCreating(modelBuilder);
+
+        // Wire the SecretEntity.OwningAgency navigation to its OwningAgencyId foreign key so it can be
+        // eager-loaded via the FGA model binder's Include support.
+        modelBuilder.Entity<SecretEntity>()
+                    .HasOne(s => s.OwningAgency)
+                    .WithMany()
+                    .HasForeignKey(s => s.OwningAgencyId);
+    }
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder) {
         base.ConfigureConventions(configurationBuilder);
         configurationBuilder.ConfigureSealedFga();

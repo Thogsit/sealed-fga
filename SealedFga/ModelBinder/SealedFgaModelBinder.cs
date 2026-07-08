@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -15,6 +16,20 @@ namespace SealedFga.ModelBinder;
 /// <typeparam name="TAttr">The attribute's type to annotate model binding.</typeparam>
 /// <param name="dbContextType">The type of the database context.</param>
 public abstract class SealedFgaModelBinder<TAttr>(Type dbContextType) : IModelBinder where TAttr : Attribute {
+    /// <summary>
+    ///     The open generic <c>EntityFrameworkQueryableExtensions.Include&lt;TEntity&gt;(IQueryable&lt;TEntity&gt;, string)</c>
+    ///     method, resolved once. The string overload is used so callers can pass navigation property paths.
+    /// </summary>
+    private static readonly MethodInfo StringIncludeMethod =
+        typeof(EntityFrameworkQueryableExtensions)
+           .GetMethods()
+           .First(m => m.Name == nameof(EntityFrameworkQueryableExtensions.Include)
+                       && m.IsGenericMethodDefinition
+                       && m.GetGenericArguments().Length == 1
+                       && m.GetParameters().Length == 2
+                       && m.GetParameters()[1].ParameterType == typeof(string)
+            );
+
     /// <inheritdoc />
     public async Task BindModelAsync(ModelBindingContext context) {
         // Retrieve fga entity parameter, e.g. SecretEntity
@@ -42,6 +57,27 @@ public abstract class SealedFgaModelBinder<TAttr>(Type dbContextType) : IModelBi
     /// <returns>The database context.</returns>
     protected DbContext GetDbContext(ModelBindingContext context)
         => (DbContext) context.HttpContext.RequestServices.GetRequiredService(dbContextType);
+
+    /// <summary>
+    ///     Applies EF <c>Include</c> navigation-property paths to a query. Returns the query unchanged when no
+    ///     includes are requested.
+    /// </summary>
+    /// <param name="query">The <see cref="IQueryable{T}" /> to compose includes onto.</param>
+    /// <param name="entityType">The queried entity's CLR type.</param>
+    /// <param name="includes">The navigation property paths to eager-load, or <c>null</c>/empty for none.</param>
+    /// <returns>The query with the requested includes applied.</returns>
+    protected static object ApplyIncludes(object query, Type entityType, string[]? includes) {
+        if (includes is null || includes.Length == 0) {
+            return query;
+        }
+
+        var includeMethod = StringIncludeMethod.MakeGenericMethod(entityType);
+        foreach (var path in includes) {
+            query = includeMethod.Invoke(null, [query, path])!;
+        }
+
+        return query;
+    }
 
     /// <summary>
     ///     Performs the FGA-specific binding logic.

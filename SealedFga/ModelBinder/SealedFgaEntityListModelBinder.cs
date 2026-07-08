@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -135,11 +136,23 @@ public class SealedFgaEntityListModelBinder(Type dbContextType)
         var containsCall = Expression.Call(containsMethod, Expression.Constant(authorizedIds, listType), idProperty);
         var lambda = Expression.Lambda(containsCall, parameter);
 
-        var filteredQuery = whereMethod.Invoke(null, [dbSet, lambda]);
+        var filteredQuery = whereMethod.Invoke(null, [dbSet, lambda])!;
 
-        // Convert to list
-        var toListMethod = typeof(Enumerable).GetMethod(nameof(Enumerable.ToList))?.MakeGenericMethod(entityType);
-        var entities = toListMethod?.Invoke(null, [filteredQuery]);
+        // Eager-load any requested navigation properties.
+        filteredQuery = ApplyIncludes(filteredQuery, entityType, attr.Include);
+
+        // Materialize asynchronously through EF. Include requires the EF query pipeline, and awaiting
+        // ToListAsync avoids blocking the request thread the way the previous synchronous ToList did.
+        var toListAsyncMethod = typeof(EntityFrameworkQueryableExtensions)
+                               .GetMethods()
+                               .First(m => m.Name == nameof(EntityFrameworkQueryableExtensions.ToListAsync) &&
+                                           m.GetParameters().Length == 2 &&
+                                           m.GetParameters()[1].ParameterType == typeof(CancellationToken)
+                                )
+                               .MakeGenericMethod(entityType);
+        var toListTask = (Task) toListAsyncMethod.Invoke(null, [filteredQuery, context.HttpContext.RequestAborted])!;
+        await toListTask;
+        var entities = toListTask.GetType().GetProperty("Result")?.GetValue(toListTask);
 
         context.Result = ModelBindingResult.Success(entities);
     }

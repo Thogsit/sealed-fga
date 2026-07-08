@@ -18,4 +18,11 @@ public class FgaAuthorizeAttribute() : ModelBinderAttribute(typeof(SealedFgaEnti
     ///     The name of the parameter to use for authorization.
     /// </summary>
     public required string ParameterName { get; set; }
+
+    /// <summary>
+    ///     Optional navigation properties to eager-load (EF <c>Include</c>) on the bound entity. Prefer the
+    ///     generated <c>{Entity}Includes</c> constants, e.g.
+    ///     <c>Include = [nameof(SecretEntityIncludes.OwningAgency)]</c>.
+    /// </summary>
+    public string[]? Include { get; set; }
 }

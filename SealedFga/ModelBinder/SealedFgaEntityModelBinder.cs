@@ -1,11 +1,14 @@
 using System;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using OpenFga.Sdk.Model;
 using SealedFga.Attributes;
+using SealedFga.AuthModel;
 using SealedFga.Exceptions;
 using SealedFga.Fga;
 using SealedFga.Generators.AuthModel;
@@ -97,7 +100,7 @@ public class SealedFgaEntityModelBinder(Type dbContextType)
             throw new FgaForbiddenException(openFgaRawUserString, attr.Relation, openFgaRawObjectString);
         }
 
-        // Find Set<T>().FindAsync method using reflection
+        // Load the entity from the DbSet, eager-loading any requested navigations.
         var dbContext = GetDbContext(context);
         var entityType = context.ModelType;
         var setMethod = typeof(DbContext).GetMethod(nameof(DbContext.Set), Type.EmptyTypes)
@@ -107,37 +110,87 @@ public class SealedFgaEntityModelBinder(Type dbContextType)
         }
 
         var dbSet = setMethod.Invoke(dbContext, null);
-        var findAsyncMethod = dbSet.GetType().GetMethod(nameof(DbSet<>.FindAsync), [typeof(object[])]);
-
-        var findTask = findAsyncMethod!.Invoke(dbSet, [new[] { parsedId }]);
-        if (findTask == null) {
+        if (dbSet == null) {
             return;
         }
 
-        // Convert the returned ValueTask to Task and await it
+        // With includes we must go through the LINQ query pipeline (FindAsync cannot eager-load); without
+        // them, keep the cheaper FindAsync primary-key lookup that also serves cached/tracked entities.
+        var entity = attr.Include is { Length: > 0 }
+            ? await LoadWithIncludesAsync(
+                dbSet,
+                entityType,
+                idType.ParameterInfo.ParameterType,
+                parsedId,
+                attr.Include,
+                context.HttpContext.RequestAborted
+            )
+            : await FindByPrimaryKeyAsync(dbSet, parsedId);
+
+        if (entity != null) {
+            context.Result = ModelBindingResult.Success(entity);
+        } else {
+            throw new FgaEntityNotFoundException(context.ModelType, parsedId);
+        }
+    }
+
+    /// <summary>
+    ///     Loads an entity by primary key via <c>DbSet.FindAsync</c> (also returns already-tracked instances).
+    /// </summary>
+    private static async Task<object?> FindByPrimaryKeyAsync(object dbSet, object parsedId) {
+        var findAsyncMethod = dbSet.GetType().GetMethod(nameof(DbSet<>.FindAsync), [typeof(object[])]);
+        var findTask = findAsyncMethod!.Invoke(dbSet, [new[] { parsedId }]);
+        if (findTask == null) {
+            return null;
+        }
+
+        // FindAsync returns ValueTask<T>; convert to Task to await, then read Result via reflection.
         var asTaskMethod = findTask.GetType().GetMethod("AsTask");
         if (asTaskMethod != null) {
-            var task = (Task) asTaskMethod.Invoke(findTask, null);
+            var task = (Task) asTaskMethod.Invoke(findTask, null)!;
             await task;
-            var resultProperty = task.GetType().GetProperty("Result");
-            var entity = resultProperty?.GetValue(task);
-
-            if (entity != null) {
-                context.Result = ModelBindingResult.Success(entity);
-            } else {
-                throw new FgaEntityNotFoundException(context.ModelType, parsedId);
-            }
-        } else {
-            // Fallback: use reflection to get the Result property directly
-            var resultProperty = findTask.GetType().GetProperty("Result");
-            if (resultProperty != null) {
-                var entity = resultProperty.GetValue(findTask);
-                if (entity != null) {
-                    context.Result = ModelBindingResult.Success(entity);
-                } else {
-                    throw new FgaEntityNotFoundException(context.ModelType, parsedId);
-                }
-            }
+            return task.GetType().GetProperty("Result")?.GetValue(task);
         }
+
+        return findTask.GetType().GetProperty("Result")?.GetValue(findTask);
+    }
+
+    /// <summary>
+    ///     Loads an entity by ID through the LINQ query pipeline so the requested navigation properties can be
+    ///     eager-loaded via EF <c>Include</c>.
+    /// </summary>
+    private static async Task<object?> LoadWithIncludesAsync(
+        object dbSet,
+        Type entityType,
+        Type idClrType,
+        object parsedId,
+        string[] includes,
+        CancellationToken cancellationToken
+    ) {
+        // Build the predicate: entity => entity.Id == parsedId
+        var parameter = Expression.Parameter(entityType, "entity");
+        var idProperty = Expression.Property(parameter, nameof(ISealedFgaType<>.Id));
+        var idEquals = Expression.Equal(idProperty, Expression.Constant(parsedId, idClrType));
+        var lambda = Expression.Lambda(idEquals, parameter);
+
+        var whereMethod = typeof(Queryable).GetMethods()
+                                           .First(m => m.Name == nameof(Queryable.Where) &&
+                                                       m.GetParameters().Length == 2
+                                            )
+                                           .MakeGenericMethod(entityType);
+        var query = whereMethod.Invoke(null, [dbSet, lambda])!;
+
+        query = ApplyIncludes(query, entityType, includes);
+
+        var firstOrDefaultMethod = typeof(EntityFrameworkQueryableExtensions)
+                                  .GetMethods()
+                                  .First(m => m.Name == nameof(EntityFrameworkQueryableExtensions.FirstOrDefaultAsync) &&
+                                              m.GetParameters().Length == 2 &&
+                                              m.GetParameters()[1].ParameterType == typeof(CancellationToken)
+                                   )
+                                  .MakeGenericMethod(entityType);
+        var task = (Task) firstOrDefaultMethod.Invoke(null, [query, cancellationToken])!;
+        await task;
+        return task.GetType().GetProperty("Result")?.GetValue(task);
     }
 }

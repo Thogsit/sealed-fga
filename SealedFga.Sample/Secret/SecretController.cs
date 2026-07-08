@@ -29,7 +29,11 @@ public class SecretController(
     [HttpGet("{secretId}")]
     public IActionResult GetSecretById(
         [FromRoute] SecretEntityId secretId,
-        [FgaAuthorize(Relation = nameof(SecretEntityIdAttributes.can_view), ParameterName = nameof(secretId))]
+        [FgaAuthorize(
+            Relation = nameof(SecretEntityIdAttributes.can_view),
+            ParameterName = nameof(secretId),
+            Include = [nameof(SecretEntityIncludes.OwningAgency)]
+        )]
         SecretEntity secret
     ) => Ok(secret);
 
