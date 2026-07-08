@@ -74,6 +74,10 @@
     <None Include="$(PkgOpenFga_Sdk)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(PkgSystem_Collections_Immutable)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
 
+    <!-- MSBuild props auto-imported into consumer projects (auto AdditionalFiles for *.fga + LangVersion).
+         NuGet imports build/<PackageId>.props, so the file name must be exactly SealedFga.props. -->
+    <None Include="build/SealedFga.props" Pack="true" PackagePath="build/" />
+
     <!-- Include README -->
     <None Include="Readme.md" Pack="true" PackagePath="\" />
   </ItemGroup>

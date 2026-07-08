@@ -16,6 +16,15 @@ public static class SealedFgaInitGenerator {
               /// </summary>
               public static class SealedFgaInit {
                   /// <summary>
+                  ///     Runs <see cref="Initialize" /> automatically when the consumer assembly is loaded,
+                  ///     so consumers never have to call it themselves. Kept separate (and internal) from
+                  ///     the public <see cref="Initialize" /> so tests can still register test-only IDs by
+                  ///     calling <see cref="Initialize" /> directly (registration is idempotent).
+                  /// </summary>
+                  [ModuleInitializer]
+                  internal static void AutoInitialize() => Initialize();
+
+                  /// <summary>
                   ///     Initializes the SealedFga library by registering all SealedFGA type IDs.
                   /// </summary>
                   public static void Initialize() {
@@ -25,6 +34,7 @@ public static class SealedFgaInitGenerator {
               }
               """,
             new HashSet<string>([
+                    "System.Runtime.CompilerServices",
                     Settings.UtilNamespace,
                 ]
             )

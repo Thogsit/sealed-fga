@@ -4,7 +4,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <LangVersion>preview</LangVersion>
+    <!-- LangVersion is intentionally NOT set: the SealedFga package's build props supply it,
+         which this test verifies. -->
     <RootNamespace>SealedFga.PackagingTests</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -39,7 +40,6 @@
     <PackageReference Include="SealedFga" Version="$(SealedFgaVersion)" />
   </ItemGroup>
 
-  <ItemGroup>
-    <AdditionalFiles Include="model.fga" />
-  </ItemGroup>
+  <!-- No <AdditionalFiles Include="model.fga" /> here on purpose: the SealedFga package's build props
+       auto-include *.fga files. This test verifies that auto-include works from a real NuGet consumer. -->
 </Project>

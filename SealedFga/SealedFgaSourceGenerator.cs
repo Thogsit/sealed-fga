@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -35,10 +36,21 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
         true
     );
 
+    private static readonly DiagnosticDescriptor MultipleModelFilesRule = new(
+        "SFGA003",
+        "Multiple OpenFGA model files",
+        "More than one '*.fga' model file was found. SealedFga supports exactly one authorization model file per project.",
+        "Security",
+        DiagnosticSeverity.Error,
+        true
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context) {
-        // Filters for changes to the model.fga file
+        // Filters for changes to any '*.fga' model file (auto-included as AdditionalFiles by the
+        // package's build props). Collected so we can detect (and reject) multiple model files.
         var modelFgaProvider = context.AdditionalTextsProvider
-                                      .Where(f => Path.GetFileName(f.Path) == "model.fga")
+                                      .Where(f => Path.GetExtension(f.Path)
+                                                      .Equals(".fga", StringComparison.OrdinalIgnoreCase))
                                       .Select((f, _) => {
                                                var fileContent = f.GetText()?.ToString();
                                                AuthorizationModel? authModel = null;
@@ -58,7 +70,8 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
                                                    AuthorizationModel = authModel,
                                                };
                                            }
-                                       );
+                                       )
+                                      .Collect();
 
         // Filters for classes with the OpenFgaTypeIdAttribute
         var fgaTypeIdProvider = context.SyntaxProvider.ForAttributeWithMetadataName(
@@ -133,13 +146,34 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
 
     private static void GenerateCodeOnFgaRelatedChange(
         SourceProductionContext context,
-        (ModelFgaIncrementalChange modelFileChange, ImmutableArray<IdClassToGenerateData> idClasses)
+        (ImmutableArray<ModelFgaIncrementalChange> modelFiles, ImmutableArray<IdClassToGenerateData> idClasses)
             fgaRelatedChanges
     ) {
-        if (fgaRelatedChanges.modelFileChange.AuthorizationModel is null) {
+        var modelFiles = fgaRelatedChanges.modelFiles;
+
+        // No '*.fga' model file in the project: nothing to generate.
+        if (modelFiles.Length == 0) {
+            return;
+        }
+
+        // Exactly one model file is supported; reject and bail on more (else per-file generation would
+        // emit duplicate hint names).
+        if (modelFiles.Length > 1) {
+            foreach (var modelFile in modelFiles) {
+                context.ReportDiagnostic(Diagnostic.Create(
+                        MultipleModelFilesRule,
+                        modelFile.DiagnosticLocation
+                    )
+                );
+            }
+            return;
+        }
+
+        var modelFileChange = modelFiles[0];
+        if (modelFileChange.AuthorizationModel is null) {
             context.ReportDiagnostic(Diagnostic.Create(
                     InvalidModelFgaFileRule,
-                    fgaRelatedChanges.modelFileChange.DiagnosticLocation
+                    modelFileChange.DiagnosticLocation
                 )
             );
             return;
@@ -147,7 +181,7 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
 
         foreach (var idClassToGenerate in fgaRelatedChanges.idClasses) {
             AddGeneratedFilesForFgaType(context,
-                fgaRelatedChanges.modelFileChange.AuthorizationModel,
+                modelFileChange.AuthorizationModel,
                 idClassToGenerate
             );
         }

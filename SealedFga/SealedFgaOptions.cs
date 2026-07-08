@@ -7,6 +7,27 @@ namespace SealedFga;
 /// </summary>
 public class SealedFgaOptions {
     /// <summary>
+    ///     Base URL of the OpenFGA HTTP API (e.g. <c>http://localhost:8080</c>). Used to build the
+    ///     <c>OpenFgaClient</c> that SealedFGA registers unless the consumer registered their own.
+    /// </summary>
+    public string? ApiUrl { get; set; }
+
+    /// <summary>The OpenFGA store id SealedFGA reads/writes tuples against.</summary>
+    public string? StoreId { get; set; }
+
+    /// <summary>
+    ///     The OpenFGA authorization model id to pin checks/writes to. When null, OpenFGA uses the
+    ///     store's latest model.
+    /// </summary>
+    public string? AuthorizationModelId { get; set; }
+
+    /// <summary>
+    ///     The claim type on <c>HttpContext.User</c> that carries the OpenFGA subject (e.g.
+    ///     <c>user:some-id</c>). Read by the FGA model binders to identify the acting user.
+    /// </summary>
+    public string UserClaimType { get; set; } = "open_fga_user";
+
+    /// <summary>
     ///     Whether the built-in background outbox drainer should run. When <c>true</c> (default), a
     ///     hosted service periodically applies queued relation changes to OpenFGA. Set to <c>false</c>
     ///     to disable it and drive <c>SealedFgaOutboxDrainer</c> yourself (e.g. in tests or a separate

@@ -18,9 +18,9 @@ namespace SealedFga.Tests.Support;
 ///     <c>model.fga</c> additional file, and snapshots the result with Verify.
 /// </summary>
 public static class GeneratorTestHarness {
-    /// <summary>An in-memory <c>model.fga</c> so the generator's AdditionalTexts input fires.</summary>
-    private sealed class ModelFgaText(string content) : AdditionalText {
-        public override string Path => "model.fga";
+    /// <summary>An in-memory <c>*.fga</c> file so the generator's AdditionalTexts input fires.</summary>
+    private sealed class ModelFgaText(string content, string path = "model.fga") : AdditionalText {
+        public override string Path { get; } = path;
         public override SourceText GetText(CancellationToken cancellationToken = default)
             => SourceText.From(content, Encoding.UTF8);
     }
@@ -34,7 +34,7 @@ public static class GeneratorTestHarness {
                  .Distinct()
                  .ToList();
 
-    private static GeneratorDriver BuildDriver(string source, string modelFga) {
+    private static GeneratorDriver BuildDriver(string source, params (string path, string content)[] models) {
         var compilation = CSharpCompilation.Create(
             "SealedFga.GeneratorInput",
             [CSharpSyntaxTree.ParseText(source)],
@@ -44,13 +44,20 @@ public static class GeneratorTestHarness {
 
         return CSharpGeneratorDriver.Create(
             [new SealedFgaSourceGenerator().AsSourceGenerator()],
-            [new ModelFgaText(modelFga)]
+            models.Select(m => (AdditionalText) new ModelFgaText(m.content, m.path)).ToArray()
         ).RunGenerators(compilation);
     }
 
     /// <summary>Runs the generator and returns the run result (for direct assertions on diagnostics).</summary>
     public static GeneratorDriverRunResult Run(string source, string modelFga)
-        => BuildDriver(source, modelFga).GetRunResult();
+        => BuildDriver(source, ("model.fga", modelFga)).GetRunResult();
+
+    /// <summary>
+    ///     Runs the generator over an arbitrary set of <c>*.fga</c> files (custom names / multiple files)
+    ///     and returns the run result for direct assertions on diagnostics and emitted sources.
+    /// </summary>
+    public static GeneratorDriverRunResult RunWithModelFiles(string source, params (string path, string content)[] models)
+        => BuildDriver(source, models).GetRunResult();
 
     /// <summary>Runs the generator and snapshots the emitted files + diagnostics with Verify.</summary>
     public static Task Verify(string source, string modelFga) {
@@ -58,7 +65,7 @@ public static class GeneratorTestHarness {
         settings.UseDirectory("Snapshots");
         // The generator emits usings from an unordered HashSet, so sort them for deterministic snapshots.
         settings.AddScrubber(SortUsingBlocks);
-        return Verifier.Verify(BuildDriver(source, modelFga), settings);
+        return Verifier.Verify(BuildDriver(source, ("model.fga", modelFga)), settings);
     }
 
     /// <summary>Sorts each maximal run of consecutive <c>using ...;</c> lines in the snapshot text.</summary>

@@ -61,6 +61,9 @@ public class SealedFgaSampleContext(DbContextOptions<SealedFgaSampleContext> opt
                     .HasForeignKey(s => s.OwningAgencyId);
     }
 
+    // Registers the generated strong-ID value converters. This must run in the pre-convention phase
+    // (EF Core needs to know these types are converted scalars before relationship discovery), so it
+    // lives here rather than in the model customizer wired by AddSealedFga.
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder) {
         base.ConfigureConventions(configurationBuilder);
         configurationBuilder.ConfigureSealedFga();

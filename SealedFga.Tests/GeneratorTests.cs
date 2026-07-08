@@ -1,5 +1,7 @@
+using System.Linq;
 using System.Threading.Tasks;
 using SealedFga.Tests.Support;
+using Shouldly;
 using Xunit;
 
 namespace SealedFga.Tests;
@@ -139,6 +141,44 @@ public class GeneratorTests {
             public partial class GhostEntityId;
             """;
         return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
+    public void Non_default_named_fga_file_is_picked_up() {
+        // The package's build props auto-include *.fga (any name), so the generator must accept a model
+        // file that is not literally called "model.fga".
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public partial class SecretEntityId;
+            """;
+        var result = GeneratorTestHarness.RunWithModelFiles(source, ("authz.fga", SecretModel));
+
+        result.Diagnostics.ShouldBeEmpty();
+        result.GeneratedTrees
+              .ShouldContain(t => t.FilePath.EndsWith("SealedFgaInit.g.cs"));
+    }
+
+    [Fact]
+    public void Multiple_fga_files_report_SFGA003() {
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public partial class SecretEntityId;
+            """;
+        var result = GeneratorTestHarness.RunWithModelFiles(
+            source,
+            ("model.fga", SecretModel),
+            ("other.fga", SecretModel)
+        );
+
+        result.Diagnostics.Select(d => d.Id).ShouldContain("SFGA003");
     }
 
     // NOTE: There is intentionally no SFGA001 (malformed model.fga) test. The DSL parser never returns a

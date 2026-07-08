@@ -8,8 +8,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using OpenFga.Sdk.Client;
 using SealedFga.Attributes;
 using SealedFga.Fga.Outbox;
 using SealedFga.Fga;
@@ -39,8 +42,11 @@ public static class SealedFgaExtensions {
     }
 
     /// <summary>
-    ///     Configures the EF Core model builder to use the SealedFGA ID types.
-    ///     Has to be called from the DbContext's ConfigureConventions method.
+    ///     Registers the generated EF Core value converters for all SealedFGA ID types.
+    ///     Call this from your DbContext's <c>ConfigureConventions</c> override. This has to
+    ///     run in the pre-convention phase (not a model customizer): EF Core must know these
+    ///     CLR types are converted scalars before relationship discovery, otherwise it treats
+    ///     them as entity types.
     /// </summary>
     public static void ConfigureSealedFga(this ModelConfigurationBuilder configurationBuilder) {
         // Retrieve all SealedFGA ID Types from the assembly
@@ -55,6 +61,25 @@ public static class SealedFgaExtensions {
                    .HaveConversion(valueConverter);
             }
         }
+    }
+
+    /// <summary>
+    ///     Configures SealedFGA services, binding <see cref="SealedFgaOptions" /> from the
+    ///     <c>"SealedFga"</c> configuration section (ApiUrl / StoreId / AuthorizationModelId /
+    ///     UserClaimType) and registering an <c>OpenFgaClient</c> from those values.
+    /// </summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="configuration">Application configuration to bind the options from.</param>
+    /// <param name="configure">Optional overrides applied on top of the bound options.</param>
+    /// <returns>The service collection for method chaining.</returns>
+    public static IServiceCollection ConfigureSealedFga<TDbContext>(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<SealedFgaOptions>? configure = null
+    ) where TDbContext : DbContext
+    {
+        services.AddOptions<SealedFgaOptions>().Bind(configuration.GetSection("SealedFga"));
+        return services.ConfigureSealedFga<TDbContext>(configure);
     }
 
     /// <summary>
@@ -82,6 +107,23 @@ public static class SealedFgaExtensions {
         if (configure != null) {
             services.Configure(configure);
         }
+
+        // Register the OpenFgaClient from the resolved options unless the consumer already
+        // registered their own (e.g. to supply custom credentials / HTTP handlers).
+        services.TryAddSingleton<OpenFgaClient>(sp => {
+            var options = sp.GetRequiredService<IOptions<SealedFgaOptions>>().Value;
+            var apiUrl = options.ApiUrl
+                ?? throw new InvalidOperationException(
+                    "SealedFga:ApiUrl is not configured. Set it in the \"SealedFga\" configuration "
+                    + "section, via ConfigureSealedFga(o => o.ApiUrl = ...), or register your own "
+                    + "OpenFgaClient before calling ConfigureSealedFga.");
+            return new OpenFgaClient(new ClientConfiguration {
+                ApiUrl = apiUrl,
+                StoreId = options.StoreId,
+                AuthorizationModelId = options.AuthorizationModelId,
+            });
+        });
+
         return services;
     }
 

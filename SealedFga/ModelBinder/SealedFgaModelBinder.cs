@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using SealedFga.Fga;
 
 namespace SealedFga.ModelBinder;
@@ -42,7 +43,9 @@ public abstract class SealedFgaModelBinder<TAttr>(Type dbContextType) : IModelBi
                            .GetCustomAttributes(typeof(TAttr), false)
                            .FirstOrDefault();
         var sealedFgaService = context.HttpContext.RequestServices.GetRequiredService<SealedFgaService>();
-        var rawUserString = context.HttpContext.User.Claims.FirstOrDefault(c => c.Type == "open_fga_user")?.Value;
+        var userClaimType = context.HttpContext.RequestServices
+                                   .GetRequiredService<IOptions<SealedFgaOptions>>().Value.UserClaimType;
+        var rawUserString = context.HttpContext.User.Claims.FirstOrDefault(c => c.Type == userClaimType)?.Value;
         if (param is null || attr is null || rawUserString is null) {
             return;
         }

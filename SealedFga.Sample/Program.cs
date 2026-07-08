@@ -15,9 +15,6 @@ namespace SealedFga.Sample;
 // TEntryPoint for WebApplicationFactory<Program> in the integration tests.
 public partial class Program {
     public static async Task Main(string[] args) {
-        // Register the generated SealedFGA type-ID metadata (parse methods, OpenFGA type names).
-        SealedFgaInit.Initialize();
-
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container
@@ -33,25 +30,20 @@ public partial class Program {
                .AddScheme<AuthenticationSchemeOptions, MockAuthenticationHandler>("MockScheme", _ => { });
         builder.Services.AddAuthorization();
 
+        // The sample's OpenFGA store is provisioned dynamically by docker-compose (a fresh store id on
+        // every run), so it discovers the store + model at startup and registers its own OpenFgaClient.
+        // Because SealedFGA registers its client with TryAddSingleton, this explicit registration (added
+        // first) wins. A normal consumer with a stable store just sets ApiUrl / StoreId /
+        // AuthorizationModelId in the "SealedFga" configuration section and omits this block entirely.
+        var apiUrl = builder.Configuration["SealedFga:ApiUrl"] ?? "http://localhost:8080";
         builder.Services.AddSingleton<OpenFgaClient>(_ => {
-                var fgaClient = new OpenFgaClient(
-                    new ClientConfiguration {
-                        ApiUrl = "http://localhost:8080",
-                    }
-                );
-                var storeId = fgaClient.ListStores(null).Result.Stores[0].Id;
-                fgaClient.Dispose();
-                fgaClient = new OpenFgaClient(
-                    new ClientConfiguration {
-                        ApiUrl = "http://localhost:8080",
-                        StoreId = storeId,
-                    }
-                );
-                var authModelId = fgaClient.ReadAuthorizationModels().Result.AuthorizationModels[0].Id;
-                fgaClient.Dispose();
-                return new OpenFgaClient(
-                    new ClientConfiguration {
-                        ApiUrl = "http://localhost:8080",
+                using var storeLookup = new OpenFgaClient(new ClientConfiguration { ApiUrl = apiUrl });
+                var storeId = storeLookup.ListStores(null).Result.Stores[0].Id;
+                using var modelLookup =
+                    new OpenFgaClient(new ClientConfiguration { ApiUrl = apiUrl, StoreId = storeId });
+                var authModelId = modelLookup.ReadAuthorizationModels().Result.AuthorizationModels[0].Id;
+                return new OpenFgaClient(new ClientConfiguration {
+                        ApiUrl = apiUrl,
                         StoreId = storeId,
                         AuthorizationModelId = authModelId,
                     }
@@ -59,9 +51,9 @@ public partial class Program {
             }
         );
 
-        // Configure SealedFGA. The background outbox drainer runs by default
-        // (SealedFgaOptions.QueueFgaServiceOperations = true).
-        builder.Services.ConfigureSealedFga<SealedFgaSampleContext>();
+        // Configure SealedFGA (binds the "SealedFga" config section). The background outbox drainer runs
+        // by default (SealedFgaOptions.QueueFgaServiceOperations = true).
+        builder.Services.ConfigureSealedFga<SealedFgaSampleContext>(builder.Configuration);
 
         var app = builder.Build();
 
