@@ -14,6 +14,7 @@
     <XunitVersion>2.9.3</XunitVersion>
     <XunitRunnerVisualStudioVersion>2.8.2</XunitRunnerVisualStudioVersion>
     <ShouldlyVersion>4.2.1</ShouldlyVersion>
+    <MicrosoftAspNetCoreMvcTestingVersion>10.0.8</MicrosoftAspNetCoreMvcTestingVersion>
     <VerifyXunitVersion>28.9.0</VerifyXunitVersion>
     <VerifySourceGeneratorsVersion>2.5.0</VerifySourceGeneratorsVersion>
     <TestcontainersVersion>4.1.0</TestcontainersVersion>

@@ -81,6 +81,16 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
         // Register incremental model.fga based code gen
         context.RegisterSourceOutput(fgaRelatedChangesProvider, GenerateCodeOnFgaRelatedChange);
 
+        // Filters for entity classes implementing ISealedFgaType<TId>. Independent of the model.fga /
+        // ID-class pipeline: entity navigation info comes purely from the entity's own symbol.
+        var entityProvider = context.SyntaxProvider.CreateSyntaxProvider(
+            static (node, _) => node is ClassDeclarationSyntax { BaseList: not null },
+            static (ctx, ct) => EntityToGenerateData.From(ctx, ct)
+        ).Where(static entity => entity is not null).Collect();
+
+        // Register per-entity {Entity}Includes code gen
+        context.RegisterSourceOutput(entityProvider, GenerateEntityIncludes);
+
         // Register non-incremental code gen
         context.RegisterPostInitializationOutput(GenerateNonIncrementalSourceFiles);
     }
@@ -97,6 +107,27 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
                 genFile.FileName,
                 genFile.BuildFullFileContent()
             );
+        }
+    }
+
+    private static void GenerateEntityIncludes(
+        SourceProductionContext context,
+        ImmutableArray<EntityToGenerateData?> entities
+    ) {
+        // A partial entity split across files would fire the syntax provider more than once; dedupe by
+        // emitted file name so AddSource never receives a duplicate hint name.
+        var emitted = new HashSet<string>();
+        foreach (var entity in entities) {
+            if (entity is null) {
+                continue;
+            }
+
+            var includesFile = TypeNameIncludesGenerator.Generate(entity);
+            if (includesFile is null || !emitted.Add(includesFile.FileName)) {
+                continue;
+            }
+
+            context.AddSource(includesFile.FileName, includesFile.BuildFullFileContent());
         }
     }
 

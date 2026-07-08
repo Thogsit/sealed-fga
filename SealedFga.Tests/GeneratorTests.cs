@@ -69,6 +69,66 @@ public class GeneratorTests {
     }
 
     [Fact]
+    public Task Entity_includes_lists_only_navigation_properties() {
+        // SecretEntity mixes a reference nav (OwningAgency), a collection nav (RelatedAgencies), an FK id
+        // property (OwningAgencyId), a primitive (Value) and its own Id. Only the two navigations should
+        // appear in SecretEntityIncludes; AgencyEntity has no navigations, so it emits no includes file.
+        const string source =
+            """
+            using System.Collections.Generic;
+            using SealedFga.Attributes;
+            using SealedFga.AuthModel;
+            using SealedFga.Models;
+            namespace TestApp;
+
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public partial class SecretEntityId;
+
+            [SealedFgaTypeId("agency", SealedFgaTypeIdType.Guid)]
+            public partial class AgencyEntityId;
+
+            public class AgencyEntity : ISealedFgaType<AgencyEntityId> {
+                public AgencyEntityId Id { get; set; }
+                public string Name { get; set; }
+            }
+
+            public class SecretEntity : ISealedFgaType<SecretEntityId> {
+                public SecretEntityId Id { get; set; }
+                public AgencyEntityId OwningAgencyId { get; set; }
+                public AgencyEntity OwningAgency { get; set; }
+                public List<AgencyEntity> RelatedAgencies { get; set; }
+                public string Value { get; set; }
+            }
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
+    public Task Entity_without_navigations_emits_no_includes_file() {
+        // UserEntity has only its Id and an FK id property, both of which are relationship keys rather than
+        // navigations, so no UserEntityIncludes file should be emitted.
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.AuthModel;
+            using SealedFga.Models;
+            namespace TestApp;
+
+            [SealedFgaTypeId("user", SealedFgaTypeIdType.String)]
+            public partial class UserEntityId;
+
+            [SealedFgaTypeId("agency", SealedFgaTypeIdType.Guid)]
+            public partial class AgencyEntityId;
+
+            public class UserEntity : ISealedFgaType<UserEntityId> {
+                public UserEntityId Id { get; set; }
+                public AgencyEntityId AgencyId { get; set; }
+            }
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
     public Task Unknown_open_fga_type_reports_SFGA002() {
         const string source =
             """

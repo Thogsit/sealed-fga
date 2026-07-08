@@ -4,14 +4,20 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using OpenFga.Sdk.Client;
+using SealedFga;
 using SealedFga.Sample.Auth;
 using SealedFga.Sample.Database;
 using SealedFga.Sample.Secret;
 
 namespace SealedFga.Sample;
 
-public static class Program {
+// Declared as a (non-static) partial class rather than `static` so it can be used as the
+// TEntryPoint for WebApplicationFactory<Program> in the integration tests.
+public partial class Program {
     public static async Task Main(string[] args) {
+        // Register the generated SealedFGA type-ID metadata (parse methods, OpenFGA type names).
+        SealedFgaInit.Initialize();
+
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container
