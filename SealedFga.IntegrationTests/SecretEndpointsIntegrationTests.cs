@@ -96,6 +96,32 @@ public class SecretEndpointsIntegrationTests(SampleWebAppFixture fixture) {
     }
 
     [Fact]
+    public async Task GetAllSecrets_with_full_access_verdict_returns_every_secret() {
+        var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Add(HeaderContextualTupleProvider.FullAccessHeaderName, "true");
+
+        var ids = await GetIds(client, "/secrets");
+
+        // FullAccess skips ListObjects and hands over the whole DbSet, so even Agency Two's secret
+        // (which the user cannot normally view) is returned.
+        ids.ShouldContain(Secret1Id);
+        ids.ShouldContain(Secret2Id);
+        ids.ShouldContain(Secret3Id);
+    }
+
+    [Fact]
+    public async Task GetAllSecrets_with_scoped_verdict_returns_only_the_scoped_ids() {
+        var client = fixture.CreateClient();
+        // Scope to secret 3 only — an ID the user is NOT normally authorized for. This proves the
+        // verdict bypasses ListObjects entirely (rather than intersecting with it).
+        client.DefaultRequestHeaders.Add(HeaderContextualTupleProvider.ScopeIdsHeaderName, Secret3Id);
+
+        var ids = await GetIds(client, "/secrets");
+
+        ids.ShouldBe([Secret3Id]);
+    }
+
+    [Fact]
     public async Task GetSecretById_with_contextual_tuple_allows_otherwise_forbidden_secret() {
         var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Add(HeaderContextualTupleProvider.HeaderName, Secret3Id);

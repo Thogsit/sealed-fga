@@ -86,54 +86,65 @@ public class SealedFgaEntityListModelBinder(Type dbContextType)
                                   + $"'{idType.Name}' returned null."
                               );
 
-        // Resolve the optional per-call options hook (contextual tuples, consistency).
-        var queryOptions = await GetBinderQueryOptionsAsync(
+        // Resolve the access verdict from the optional provider: FullAccess (skip ListObjects and
+        // hand over the unfiltered DbSet), ScopedToIds (a caller-computed ID set), or Normal
+        // (ListObjects with the returned options). No provider registered => Normal with no options.
+        var verdict = await GetBinderListVerdictAsync(
             context,
             openFgaRawUserString,
             attr.Relation,
-            openFgaTypeName,
-            SealedFgaBinderOperation.List
+            openFgaTypeName
         );
 
-        // Get authorized object IDs using ListObjectsAsync with raw parameters
-        var authorizedObjectStrings = await sealedFgaService.ListObjectsAsync(
-            openFgaRawUserString,
-            attr.Relation,
-            openFgaTypeName,
-            queryOptions,
-            context.HttpContext.RequestAborted
-        );
-
-        // Parse authorized IDs into strong ID types. OpenFGA returns full "type:id" object strings;
-        // strip the type prefix before parsing the raw ID.
-        var listType = typeof(List<>).MakeGenericType(idType);
-        var authorizedIds = Activator.CreateInstance(listType);
-        var addMethod = listType.GetMethod(nameof(List<>.Add))!;
-        foreach (var aos in authorizedObjectStrings) {
-            var separatorIndex = aos.IndexOf(':');
-            var rawId = separatorIndex >= 0 ? aos.Substring(separatorIndex + 1) : aos;
-            addMethod.Invoke(authorizedIds, [IdUtil.ParseId(idType, rawId)]);
-        }
-
-        // Get the DbSet (via Set<T>() like the entity binder — no declared DbSet property required)
-        // and filter by authorized IDs. An empty ID list stays a regular EF query (translated to a
-        // false predicate) so the action can compose/materialize it the same way.
+        // Get the DbSet (via Set<T>() like the entity binder — no declared DbSet property required).
         var dbSet = SealedFgaBinderReflectionCache.Set(entityType).Invoke(dbContext, null)
                     ?? throw new InvalidOperationException(
                         $"DbContext.Set<{entityType.Name}>() on '{dbContext.GetType().Name}' returned null."
                     );
 
-        // Use LINQ to filter entities by authorized IDs
-        var whereMethod = SealedFgaBinderReflectionCache.Where(entityType);
+        object filteredQuery;
+        if (verdict.Kind == SealedFgaListVerdict.VerdictKind.FullAccess) {
+            // Full access: no authorization filtering. EF global query filters still apply because
+            // the query is still the DbSet. The action composes paging/sorting/projections as usual.
+            filteredQuery = dbSet;
+        } else {
+            // Collect the authorized raw IDs — either the provider's custom scope, or ListObjects.
+            IEnumerable<string> rawObjectIds;
+            if (verdict.Kind == SealedFgaListVerdict.VerdictKind.ScopedToIds) {
+                rawObjectIds = verdict.ObjectIds!;
+            } else {
+                var authorizedObjectStrings = await sealedFgaService.ListObjectsAsync(
+                    openFgaRawUserString,
+                    attr.Relation,
+                    openFgaTypeName,
+                    verdict.Options,
+                    context.HttpContext.RequestAborted
+                );
 
-        // Create lambda: entity => authorizedIds.Contains(entity.Id)
-        var parameter = Expression.Parameter(entityType, "entity");
-        var idProperty = Expression.Property(parameter, nameof(ISealedFgaType<>.Id));
-        var containsMethod = SealedFgaBinderReflectionCache.Contains(idType);
-        var containsCall = Expression.Call(containsMethod, Expression.Constant(authorizedIds, listType), idProperty);
-        var lambda = Expression.Lambda(containsCall, parameter);
+                // OpenFGA returns full "type:id" object strings; strip the type prefix.
+                rawObjectIds = authorizedObjectStrings.Select(StripTypePrefix);
+            }
 
-        var filteredQuery = whereMethod.Invoke(null, [dbSet, lambda])!;
+            // Parse authorized IDs into strong ID types. An empty ID list stays a regular EF query
+            // (translated to a false predicate) so the action can compose/materialize it the same way.
+            var listType = typeof(List<>).MakeGenericType(idType);
+            var authorizedIds = Activator.CreateInstance(listType);
+            var addMethod = listType.GetMethod(nameof(List<>.Add))!;
+            foreach (var rawId in rawObjectIds) {
+                addMethod.Invoke(authorizedIds, [IdUtil.ParseId(idType, rawId)]);
+            }
+
+            // Use LINQ to filter entities by authorized IDs: entity => authorizedIds.Contains(entity.Id)
+            var whereMethod = SealedFgaBinderReflectionCache.Where(entityType);
+            var parameter = Expression.Parameter(entityType, "entity");
+            var idProperty = Expression.Property(parameter, nameof(ISealedFgaType<>.Id));
+            var containsMethod = SealedFgaBinderReflectionCache.Contains(idType);
+            var containsCall =
+                Expression.Call(containsMethod, Expression.Constant(authorizedIds, listType), idProperty);
+            var lambda = Expression.Lambda(containsCall, parameter);
+
+            filteredQuery = whereMethod.Invoke(null, [dbSet, lambda])!;
+        }
 
         // Eager-load any requested navigation properties.
         filteredQuery = ApplyIncludes(filteredQuery, entityType, attr.Include);
@@ -142,5 +153,11 @@ public class SealedFgaEntityListModelBinder(Type dbContextType)
         // IQueryable model would enumerate it, silently executing the query before the action runs.
         context.ValidationState[filteredQuery] = new ValidationStateEntry { SuppressValidation = true };
         context.Result = ModelBindingResult.Success(filteredQuery);
+    }
+
+    /// <summary>Strips the <c>type:</c> prefix from an OpenFGA object string, returning the raw ID.</summary>
+    private static string StripTypePrefix(string objectString) {
+        var separatorIndex = objectString.IndexOf(':');
+        return separatorIndex >= 0 ? objectString.Substring(separatorIndex + 1) : objectString;
     }
 }

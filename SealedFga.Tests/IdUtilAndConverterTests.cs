@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text.Json;
 using SealedFga.AuthModel;
 using SealedFga.Tests.Support;
 using SealedFga.Util;
@@ -62,5 +63,59 @@ public class IdUtilAndConverterTests {
     public void Userset_renders_object_and_relation() {
         var userset = SealedFgaUserset<TestUserId>.From(new TestUserId("bob"), new TestRelation("member"));
         userset.AsOpenFgaIdTupleString().ShouldBe("testuser:bob#member");
+    }
+
+    [Fact]
+    public void Int_backed_id_round_trips_parse_tuple_string_and_registration() {
+        var id = TestChannelId.Parse("42");
+        id.Value.ShouldBe(42);
+        id.ToString().ShouldBe("42");
+        id.AsOpenFgaIdTupleString().ShouldBe("testchannel:42");
+        IdUtil.GetNameByIdType(typeof(TestChannelId)).ShouldBe("testchannel");
+        IdUtil.ParseId<TestChannelId>("7").Value.ShouldBe(7);
+    }
+
+    [Fact]
+    public void Int32IdTypeConverter_converts_string_and_int_both_directions() {
+        var converter = new TestChannelId.IdTypeConverter();
+
+        converter.CanConvertFrom(null!, typeof(string)).ShouldBeTrue();
+        converter.CanConvertFrom(null!, typeof(int)).ShouldBeTrue();
+        converter.CanConvertTo(null!, typeof(int)).ShouldBeTrue();
+
+        ((TestChannelId) converter.ConvertFrom(null!, CultureInfo.InvariantCulture, "13")!).Value.ShouldBe(13);
+        ((TestChannelId) converter.ConvertFrom(null!, CultureInfo.InvariantCulture, 13)!).Value.ShouldBe(13);
+
+        var id = new TestChannelId(99);
+        converter.ConvertTo(null!, CultureInfo.InvariantCulture, id, typeof(string)).ShouldBe("99");
+        converter.ConvertTo(null!, CultureInfo.InvariantCulture, id, typeof(int)).ShouldBe(99);
+    }
+
+    [Fact]
+    public void Int64IdTypeConverter_converts_string_int_and_long() {
+        var converter = new TestBigId.IdTypeConverter();
+
+        converter.CanConvertFrom(null!, typeof(long)).ShouldBeTrue();
+        converter.CanConvertFrom(null!, typeof(int)).ShouldBeTrue();
+        converter.CanConvertTo(null!, typeof(long)).ShouldBeTrue();
+
+        ((TestBigId) converter.ConvertFrom(null!, CultureInfo.InvariantCulture, "5000000000")!).Value
+            .ShouldBe(5000000000L);
+        ((TestBigId) converter.ConvertFrom(null!, CultureInfo.InvariantCulture, 42L)!).Value.ShouldBe(42L);
+
+        var id = new TestBigId(5000000000L);
+        converter.ConvertTo(null!, CultureInfo.InvariantCulture, id, typeof(long)).ShouldBe(5000000000L);
+        converter.ConvertTo(null!, CultureInfo.InvariantCulture, id, typeof(string)).ShouldBe("5000000000");
+    }
+
+    [Fact]
+    public void Int_backed_ids_serialize_as_json_numbers_and_round_trip() {
+        JsonSerializer.Serialize(new TestChannelId(42)).ShouldBe("42");
+        JsonSerializer.Deserialize<TestChannelId>("42").Value.ShouldBe(42);
+        // Tolerant read: a numeric string still deserializes.
+        JsonSerializer.Deserialize<TestChannelId>("\"42\"").Value.ShouldBe(42);
+
+        JsonSerializer.Serialize(new TestBigId(5000000000L)).ShouldBe("5000000000");
+        JsonSerializer.Deserialize<TestBigId>("5000000000").Value.ShouldBe(5000000000L);
     }
 }

@@ -75,6 +75,32 @@ public class OutboxEnqueueIntegrationTests(OpenFgaFixture fga) {
     }
 
     [Fact]
+    public async Task DeleteAllForObject_enqueue_purges_both_object_and_subject_side_tuples() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var target = new TestUserId("enq-purge-target");
+        var obj = TestObjectId.New();
+        var parent = TestParentId.New();
+
+        // The target appears on the user/subject side of two tuples (on an object and on a parent).
+        ctx.EnqueueFgaWrite(target, CanView, obj);
+        ctx.EnqueueFgaWrite(target, Member, parent);
+        await ctx.SaveChangesAsync();
+        (await SealedFgaOutboxDrainer.DrainOnceAsync(ctx, fga.Service, batchSize: 10, maxAttempts: 5)).ShouldBe(2);
+
+        (await fga.Client.Read(new ClientReadRequest { Object = obj.AsOpenFgaIdTupleString() })).Tuples.ShouldNotBeEmpty();
+
+        // Enqueue the public fence and drain it: every tuple referencing the target must be gone.
+        ctx.EnqueueFgaDeleteAllForObject(target);
+        await ctx.SaveChangesAsync();
+        (await SealedFgaOutboxDrainer.DrainOnceAsync(ctx, fga.Service, batchSize: 10, maxAttempts: 5)).ShouldBe(1);
+
+        (await fga.Client.Read(new ClientReadRequest { Object = obj.AsOpenFgaIdTupleString() })).Tuples.ShouldBeEmpty();
+        (await fga.Client.Read(new ClientReadRequest { Object = parent.AsOpenFgaIdTupleString() })).Tuples.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Batch_enqueue_rides_the_transaction_and_drains_in_one_pass() {
         var (ctx, conn) = TestDbContext.CreateSqlite();
         using var _ = conn;

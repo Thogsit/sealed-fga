@@ -10,6 +10,8 @@ internal static class GeneratorUtil {
         => type switch {
             SealedFgaTypeIdType.String => "string",
             SealedFgaTypeIdType.Guid => "Guid",
+            SealedFgaTypeIdType.Int => "int",
+            SealedFgaTypeIdType.Long => "long",
         };
 #pragma warning restore CS8524
 

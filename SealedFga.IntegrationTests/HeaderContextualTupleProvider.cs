@@ -17,6 +17,12 @@ namespace SealedFga.IntegrationTests;
 internal sealed class HeaderContextualTupleProvider : ISealedFgaBinderOptionsProvider {
     public const string HeaderName = "X-Test-Contextual-View-Secret";
 
+    /// <summary>Presence grants the list binder full (unfiltered) access — the "super-user" escape hatch.</summary>
+    public const string FullAccessHeaderName = "X-Test-Full-Access";
+
+    /// <summary>Value = comma-separated raw secret IDs the list binder should be scoped to.</summary>
+    public const string ScopeIdsHeaderName = "X-Test-Scope-Ids";
+
     public ValueTask<SealedFgaQueryOptions?> GetOptionsAsync(SealedFgaBinderOptionsContext context) {
         if (!context.HttpContext.Request.Headers.TryGetValue(HeaderName, out var secretIds)) {
             return ValueTask.FromResult<SealedFgaQueryOptions?>(null);
@@ -33,5 +39,20 @@ internal sealed class HeaderContextualTupleProvider : ISealedFgaBinderOptionsPro
                                ))
                               .ToList(),
         });
+    }
+
+    public async ValueTask<SealedFgaListVerdict> GetListVerdictAsync(SealedFgaBinderOptionsContext context) {
+        if (context.HttpContext.Request.Headers.ContainsKey(FullAccessHeaderName)) {
+            return SealedFgaListVerdict.FullAccess;
+        }
+
+        if (context.HttpContext.Request.Headers.TryGetValue(ScopeIdsHeaderName, out var scopeIds)) {
+            return SealedFgaListVerdict.ScopedToIds(
+                scopeIds.SelectMany(v => v!.Split(',')).ToList()
+            );
+        }
+
+        // Otherwise keep the default behavior (ListObjects with any contextual-tuple options).
+        return SealedFgaListVerdict.Normal(await GetOptionsAsync(context));
     }
 }

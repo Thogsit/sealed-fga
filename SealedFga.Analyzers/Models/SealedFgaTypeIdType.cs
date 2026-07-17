@@ -12,4 +12,10 @@ namespace SealedFga.Models;
 internal enum SealedFgaTypeIdType {
     String,
     Guid,
+
+    // New members are appended: the ordinal value is the attribute's binary contract (the
+    // constructor argument is stored/unboxed by value). Never reorder or insert. Keep in sync
+    // with the runtime copy (SealedFga/Models/SealedFgaTypeIdType.cs).
+    Int,
+    Long,
 }

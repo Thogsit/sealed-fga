@@ -1,7 +1,9 @@
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using OpenFga.Sdk.Client.Model;
 using OpenFga.Sdk.Model;
+using SealedFga;
 using SealedFga.AuthModel;
 using SealedFga.Exceptions;
 using SealedFga.Fga;
@@ -242,6 +244,105 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
             options
         );
         results.Single().Value.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListUsersAsync_returns_concrete_subjects_as_strong_ids() {
+        var obj = GuidOf("listusers");
+        await fga.Service.WriteTuplesAsync([
+            new TupleKey { User = "testuser:uma", Relation = "can_view", Object = $"testobject:{obj}" },
+            new TupleKey { User = "testuser:victor", Relation = "can_view", Object = $"testobject:{obj}" },
+        ]);
+
+        var result = await fga.Service.ListUsersAsync<TestObjectId, TestUserId>(
+            TestObjectId.Parse(obj),
+            new ObjRelation("can_view")
+        );
+
+        result.Users.Select(u => u.Value).ShouldBe(["uma", "victor"], ignoreOrder: true);
+        result.HasWildcard.ShouldBeFalse();
+        result.Usersets.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ListUsersAsync_honors_contextual_tuples() {
+        var obj = GuidOf("listusers-ctx");
+        var user = new TestUserId("wendy");
+        var options = new SealedFgaQueryOptions {
+            ContextualTuples = [
+                SealedFgaContextualTuple.Of(user, new ObjRelation("can_view"), TestObjectId.Parse(obj)),
+            ],
+        };
+
+        (await fga.Service.ListUsersAsync<TestObjectId, TestUserId>(TestObjectId.Parse(obj), new ObjRelation("can_view")))
+            .Users.ShouldBeEmpty();
+
+        var result = await fga.Service.ListUsersAsync<TestObjectId, TestUserId>(
+            TestObjectId.Parse(obj),
+            new ObjRelation("can_view"),
+            options
+        );
+        result.Users.Select(u => u.Value).ShouldContain("wendy");
+    }
+
+    [Fact]
+    public async Task ListRelationsAsync_returns_only_the_relations_the_user_holds() {
+        var obj = GuidOf("listrelations");
+        var user = new TestUserId("xena");
+        await fga.Service.WriteTuplesAsync([
+            new TupleKey { User = user.AsOpenFgaIdTupleString(), Relation = "can_view", Object = $"testobject:{obj}" },
+        ]);
+
+        ISealedFgaRelation<TestObjectId>[] candidates = [new ObjRelation("can_view"), new ObjRelation("can_edit")];
+        var held = await fga.Service.ListRelationsAsync(user, candidates, TestObjectId.Parse(obj));
+
+        held.Select(r => r.AsOpenFgaString()).ShouldBe(["can_view"]);
+    }
+
+    [Fact]
+    public async Task BatchCheckAsync_applies_per_item_contextual_tuples() {
+        var objA = TestObjectId.Parse(GuidOf("peritemA"));
+        var objB = TestObjectId.Parse(GuidOf("peritemB"));
+        var user = new TestUserId("peritem-yuri");
+        var canView = new ObjRelation("can_view");
+
+        // Each check carries a contextual grant only for object A (the "tuple on its own object"
+        // shape). B gets none, so per-item application means A is allowed and B is not.
+        var results = await fga.Service.BatchCheckAsync(
+            [((ISealedFgaUser) user, (ISealedFgaRelation<TestObjectId>) canView, objA), (user, canView, objB)],
+            check => check.Object.Equals(objA)
+                ? [SealedFgaContextualTuple.Of(user, canView, objA)]
+                : null
+        );
+
+        results[(user, canView, objA)].ShouldBeTrue();
+        results[(user, canView, objB)].ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DefaultListConsistency_is_honored_by_list_operations() {
+        // A service configured to default list ops to HIGHERCONSISTENCY (mirroring a consumer that
+        // "always uses HIGHERCONSISTENCY on list ops") must still round-trip ListObjects/ListUsers/
+        // ListRelations without an explicit per-call consistency.
+        var service = new SealedFgaService(fga.Client, Options.Create(new SealedFgaOptions {
+            DefaultListConsistency = ConsistencyPreference.HIGHERCONSISTENCY,
+        }));
+        var obj = GuidOf("defaultconsistency");
+        var user = new TestUserId("zoe");
+        await service.WriteTuplesAsync([
+            new TupleKey { User = user.AsOpenFgaIdTupleString(), Relation = "can_view", Object = $"testobject:{obj}" },
+        ]);
+
+        (await service.ListObjectsAsync(user, new ObjRelation("can_view")))
+            .ShouldContain(o => o.Value == System.Guid.Parse(obj));
+        (await service.ListUsersAsync<TestObjectId, TestUserId>(TestObjectId.Parse(obj), new ObjRelation("can_view")))
+            .Users.Select(u => u.Value).ShouldContain("zoe");
+        (await service.ListRelationsAsync(
+                user,
+                [(ISealedFgaRelation<TestObjectId>) new ObjRelation("can_view")],
+                TestObjectId.Parse(obj)
+            ))
+            .Select(r => r.AsOpenFgaString()).ShouldBe(["can_view"]);
     }
 
     // Deterministic, unique GUID string per logical key so tests don't collide in the shared store.

@@ -1,7 +1,10 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SealedFga.AuthModel;
+using SealedFga.Util;
 
 namespace SealedFga.Tests.Support;
 
@@ -55,4 +58,45 @@ public readonly record struct TestUserId(string Value) : ISealedFgaTypeId<TestUs
         : ValueConverter<TestUserId, string>(id => id.Value, val => new TestUserId(val));
 
     public sealed class IdTypeConverter() : StringIdTypeConverter<TestUserId>(Parse);
+}
+
+// Int/long-backed mirrors: like the generator, integer IDs omit New() (their values are
+// database-assigned) and serialize as JSON numbers.
+
+/// <summary>Int-backed test ID (OpenFGA type <c>testchannel</c>).</summary>
+[TypeConverter(typeof(IdTypeConverter))]
+[JsonConverter(typeof(IdJsonConverter))]
+public readonly record struct TestChannelId(int Value) : ISealedFgaTypeId<TestChannelId> {
+    public static string OpenFgaTypeName => "testchannel";
+    public static TestChannelId Parse(string val) => new(int.Parse(val, CultureInfo.InvariantCulture));
+    public string AsOpenFgaIdTupleString() => $"{OpenFgaTypeName}:{ToString()}";
+    public override string ToString() => Value.ToString(CultureInfo.InvariantCulture);
+
+    public sealed class EfCoreValueConverter()
+        : ValueConverter<TestChannelId, int>(id => id.Value, val => new TestChannelId(val));
+
+    public sealed class IdJsonConverter()
+        : JsonSimpleInt32Converter<TestChannelId>(v => new TestChannelId(v), id => id.Value);
+
+    public sealed class IdTypeConverter()
+        : Int32IdTypeConverter<TestChannelId>(v => new TestChannelId(v), Parse, id => id.Value);
+}
+
+/// <summary>Long-backed test ID (OpenFGA type <c>testbig</c>).</summary>
+[TypeConverter(typeof(IdTypeConverter))]
+[JsonConverter(typeof(IdJsonConverter))]
+public readonly record struct TestBigId(long Value) : ISealedFgaTypeId<TestBigId> {
+    public static string OpenFgaTypeName => "testbig";
+    public static TestBigId Parse(string val) => new(long.Parse(val, CultureInfo.InvariantCulture));
+    public string AsOpenFgaIdTupleString() => $"{OpenFgaTypeName}:{ToString()}";
+    public override string ToString() => Value.ToString(CultureInfo.InvariantCulture);
+
+    public sealed class EfCoreValueConverter()
+        : ValueConverter<TestBigId, long>(id => id.Value, val => new TestBigId(val));
+
+    public sealed class IdJsonConverter()
+        : JsonSimpleInt64Converter<TestBigId>(v => new TestBigId(v), id => id.Value);
+
+    public sealed class IdTypeConverter()
+        : Int64IdTypeConverter<TestBigId>(v => new TestBigId(v), Parse, id => id.Value);
 }

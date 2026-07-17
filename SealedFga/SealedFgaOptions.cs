@@ -1,4 +1,5 @@
 using System;
+using OpenFga.Sdk.Model;
 
 namespace SealedFga;
 
@@ -86,4 +87,16 @@ public class SealedFgaOptions {
     ///     model is cached indefinitely (models are immutable per ID) and this value is ignored.
     /// </summary>
     public TimeSpan AuthorizationModelCacheTtl { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    ///     Default read consistency applied to <b>list-shaped</b> operations
+    ///     (<c>ListObjectsAsync</c>, <c>ListUsersAsync</c>, <c>ListRelationsAsync</c>, and the
+    ///     <c>[FgaAuthorizeList]</c> binder) when a call supplies no explicit consistency. This lets a
+    ///     consumer mirror "always <see cref="ConsistencyPreference.HIGHERCONSISTENCY" /> on list ops"
+    ///     without threading options through every call site. A per-call
+    ///     <c>SealedFgaQueryOptions.Consistency</c> always wins; <c>null</c> (default) leaves the
+    ///     choice to the server. Single <c>CheckAsync</c>/<c>BatchCheckAsync</c> calls are unaffected —
+    ///     this applies only to list operations.
+    /// </summary>
+    public ConsistencyPreference? DefaultListConsistency { get; set; }
 }

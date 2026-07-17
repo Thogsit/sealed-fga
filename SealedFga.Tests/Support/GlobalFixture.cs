@@ -21,10 +21,14 @@ public sealed class GlobalFixture {
         IdUtil.RegisterIdType(typeof(TestObjectId), TestObjectId.OpenFgaTypeName);
         IdUtil.RegisterIdType(typeof(TestParentId), TestParentId.OpenFgaTypeName);
         IdUtil.RegisterIdType(typeof(TestUserId), TestUserId.OpenFgaTypeName);
+        IdUtil.RegisterIdType(typeof(TestChannelId), TestChannelId.OpenFgaTypeName);
+        IdUtil.RegisterIdType(typeof(TestBigId), TestBigId.OpenFgaTypeName);
 
         IdUtil.RegisterIdTypeParseMethod(typeof(TestObjectId), s => TestObjectId.Parse(s));
         IdUtil.RegisterIdTypeParseMethod(typeof(TestParentId), s => TestParentId.Parse(s));
         IdUtil.RegisterIdTypeParseMethod(typeof(TestUserId), s => TestUserId.Parse(s));
+        IdUtil.RegisterIdTypeParseMethod(typeof(TestChannelId), s => TestChannelId.Parse(s));
+        IdUtil.RegisterIdTypeParseMethod(typeof(TestBigId), s => TestBigId.Parse(s));
 
         VerifySourceGenerators.Initialize();
     }

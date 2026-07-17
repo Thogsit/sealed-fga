@@ -9,4 +9,9 @@ namespace SealedFga.Models;
 public enum SealedFgaTypeIdType {
     String,
     Guid,
+
+    // New members are appended: the ordinal value is the attribute's binary contract (the
+    // constructor argument is stored/unboxed by value). Never reorder or insert.
+    Int,
+    Long,
 }

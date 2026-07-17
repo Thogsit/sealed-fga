@@ -95,6 +95,36 @@ public abstract class SealedFgaModelBinder<TAttr>(Type dbContextType) : IModelBi
     }
 
     /// <summary>
+    ///     Resolves the optional <see cref="ISealedFgaBinderOptionsProvider" /> hook for a list binding
+    ///     and asks it for the access <see cref="SealedFgaListVerdict" />. Returns
+    ///     <see cref="SealedFgaListVerdict.Normal(SealedFgaQueryOptions?)" /> with no options — default
+    ///     scoping — when no provider is registered.
+    /// </summary>
+    /// <param name="context">The model binding context.</param>
+    /// <param name="rawUser">The user's OpenFGA tuple string.</param>
+    /// <param name="relation">The relation being listed.</param>
+    /// <param name="objectTypeName">The OpenFGA type name of the object side.</param>
+    protected static async ValueTask<SealedFgaListVerdict> GetBinderListVerdictAsync(
+        ModelBindingContext context,
+        string rawUser,
+        string relation,
+        string objectTypeName
+    ) {
+        var provider = context.HttpContext.RequestServices.GetService<ISealedFgaBinderOptionsProvider>();
+        if (provider is null) {
+            return SealedFgaListVerdict.Normal();
+        }
+
+        return await provider.GetListVerdictAsync(new SealedFgaBinderOptionsContext(
+            context.HttpContext,
+            rawUser,
+            relation,
+            objectTypeName,
+            SealedFgaBinderOperation.List
+        ));
+    }
+
+    /// <summary>
     ///     Applies EF <c>Include</c> navigation-property paths to a query. Returns the query unchanged when no
     ///     includes are requested.
     /// </summary>

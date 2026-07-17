@@ -35,6 +35,14 @@ public class SealedFgaService(
 
     private int MaxTuplesPerWrite => Math.Max(1, options.Value.MaxTuplesPerWrite);
 
+    /// <summary>
+    ///     Resolves the effective read consistency for a <b>list-shaped</b> operation: the per-call
+    ///     value wins, falling back to <see cref="SealedFgaOptions.DefaultListConsistency" />. Single
+    ///     <c>Check</c>/<c>BatchCheck</c> calls deliberately do not use this.
+    /// </summary>
+    private ConsistencyPreference? ResolveListConsistency(SealedFgaQueryOptions? queryOptions)
+        => queryOptions?.Consistency ?? options.Value.DefaultListConsistency;
+
 
     #region Strongly-Typed ID Methods
 
@@ -161,7 +169,102 @@ public class SealedFgaService(
     }
 
     /// <summary>
-    ///     Performs batch check operations using strongly typed IDs.
+    ///     Lists the subjects of a given user type that have a relation to an object, returning
+    ///     strongly typed IDs. Single-shot: OpenFGA's <c>ListUsers</c> is not paginated (no
+    ///     continuation token), so the response is complete.
+    /// </summary>
+    /// <param name="objectId">The object whose subjects are listed (strongly typed)</param>
+    /// <param name="relation">The relation to check (bound to the object type)</param>
+    /// <param name="queryOptions">Optional per-call options (contextual tuples, consistency)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <typeparam name="TObjId">The object ID type</typeparam>
+    /// <typeparam name="TUserId">The user ID type to list (the user-type filter)</typeparam>
+    /// <returns>
+    ///     A <see cref="SealedFgaListUsersResult{TUserId}" /> exposing concrete subjects, userset
+    ///     subjects, and whether a <c>type:*</c> wildcard was returned — each surfaced explicitly so
+    ///     a wildcard ("every user of this type") is never silently dropped.
+    /// </returns>
+    public async Task<SealedFgaListUsersResult<TUserId>> ListUsersAsync<TObjId, TUserId>(
+        TObjId objectId,
+        ISealedFgaRelation<TObjId> relation,
+        SealedFgaQueryOptions? queryOptions = null,
+        CancellationToken cancellationToken = new()
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>
+        where TUserId : ISealedFgaTypeId<TUserId> {
+        ArgumentNullException.ThrowIfNull(relation);
+        ArgumentNullException.ThrowIfNull(objectId);
+
+        var userTypeName = IdUtil.GetNameByIdType(typeof(TUserId));
+        var users = await ListUsersAsync(
+            new FgaObject {
+                Type = IdUtil.GetNameByIdType(typeof(TObjId)),
+                Id = objectId.ToString(),
+            },
+            relation.AsOpenFgaString(),
+            [new UserTypeFilter { Type = userTypeName }],
+            queryOptions,
+            cancellationToken
+        );
+
+        return MapListUsersResult<TUserId>(users);
+    }
+
+    /// <summary>
+    ///     Lists which of the given relations a user has to a specific object, returning the matching
+    ///     strongly typed relations. Implemented as a single <see cref="BatchCheckAsync{TObjId}" />
+    ///     (not the SDK's <c>ListRelations</c>) so it inherits the strict, fail-loud
+    ///     <see cref="MapBatchCheckResults" /> contract: an incomplete or errored response throws
+    ///     rather than silently reporting a relation as absent.
+    /// </summary>
+    /// <param name="user">The user to check (strongly typed)</param>
+    /// <param name="relations">The candidate relations to test (bound to the object type)</param>
+    /// <param name="objectId">The object to check against (strongly typed)</param>
+    /// <param name="queryOptions">Optional per-call options (contextual tuples, consistency)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <typeparam name="TObjId">The object ID type</typeparam>
+    /// <returns>The subset of <paramref name="relations" /> the user holds, in input order.</returns>
+    public async Task<IReadOnlyList<ISealedFgaRelation<TObjId>>> ListRelationsAsync<TObjId>(
+        ISealedFgaUser user,
+        IEnumerable<ISealedFgaRelation<TObjId>> relations,
+        TObjId objectId,
+        SealedFgaQueryOptions? queryOptions = null,
+        CancellationToken cancellationToken = new()
+    )
+        where TObjId : ISealedFgaTypeId<TObjId> {
+        ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(relations);
+        ArgumentNullException.ThrowIfNull(objectId);
+
+        var relationList = relations.ToList();
+        if (relationList.Count == 0) {
+            return [];
+        }
+
+        var rawUser = user.AsOpenFgaIdTupleString();
+        var rawObject = objectId.AsOpenFgaIdTupleString();
+        var tupleKeys = relationList.Select(relation => new TupleKey {
+                User = rawUser,
+                Relation = relation.AsOpenFgaString(),
+                Object = rawObject,
+            }
+        ).ToList();
+
+        // Shared contextual tuples for every relation; list ops honor DefaultListConsistency.
+        var contextualTuples = queryOptions?.ToContextualTupleKeys();
+        var results = (await BatchCheckCoreAsync(
+            tupleKeys,
+            _ => contextualTuples,
+            ResolveListConsistency(queryOptions),
+            cancellationToken
+        )).ToList();
+
+        return relationList.Where((_, index) => results[index]).ToList();
+    }
+
+    /// <summary>
+    ///     Performs batch check operations using strongly typed IDs. One shared
+    ///     <paramref name="queryOptions" /> set (contextual tuples + consistency) applies to every item.
     /// </summary>
     /// <param name="checks">List of check requests with strongly typed IDs</param>
     /// <param name="queryOptions">Optional per-call options (contextual tuples, consistency), applied to every check in the batch</param>
@@ -176,27 +279,108 @@ public class SealedFgaService(
         )
         where TObjId : ISealedFgaTypeId<TObjId> {
         var checksAsList = checks.ToList();
-        var results = (await BatchCheckAsync(
-            checksAsList.Select(check => new TupleKey {
-                    User = check.User.AsOpenFgaIdTupleString(),
-                    Relation = check.Relation.AsOpenFgaString(),
-                    Object = check.Object.AsOpenFgaIdTupleString(),
-                }
-            ),
-            queryOptions,
+        var contextualTuples = queryOptions?.ToContextualTupleKeys();
+        var results = (await BatchCheckCoreAsync(
+            ToBatchTupleKeys(checksAsList),
+            _ => contextualTuples,
+            queryOptions?.Consistency,
             cancellationToken
         )).ToList();
 
-        // Map by positional index (not IndexOf, which returns the first match and would mis-map
-        // duplicate checks). Use the indexer so duplicate keys collapse instead of throwing.
+        return MapResultsByCheck(checksAsList, results);
+    }
+
+    /// <summary>
+    ///     Performs batch check operations using strongly typed IDs, where each check carries its
+    ///     <b>own</b> contextual tuples produced by <paramref name="contextualTuplesFactory" /> — the
+    ///     shape needed for per-object request-time tuples (e.g. a super-user grant attached to each
+    ///     object individually). <paramref name="consistency" /> applies to the whole batch. The
+    ///     fail-loud <see cref="MapBatchCheckResults" /> contract is unchanged.
+    /// </summary>
+    /// <param name="checks">List of check requests with strongly typed IDs</param>
+    /// <param name="contextualTuplesFactory">
+    ///     Returns the contextual tuples for a single check (or <c>null</c>/empty for none). Invoked
+    ///     once per check, in input order.
+    /// </param>
+    /// <param name="consistency">Optional read consistency applied to the whole batch</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <typeparam name="TObjId">The object ID type</typeparam>
+    /// <returns>Dictionary with results for each check</returns>
+    public async Task<Dictionary<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object), bool>>
+        BatchCheckAsync<TObjId>(
+            IEnumerable<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> checks,
+            Func<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object),
+                IReadOnlyCollection<SealedFgaContextualTuple>?> contextualTuplesFactory,
+            ConsistencyPreference? consistency = null,
+            CancellationToken cancellationToken = new()
+        )
+        where TObjId : ISealedFgaTypeId<TObjId> {
+        ArgumentNullException.ThrowIfNull(contextualTuplesFactory);
+
+        var checksAsList = checks.ToList();
+        var results = (await BatchCheckCoreAsync(
+            ToBatchTupleKeys(checksAsList),
+            index => SealedFgaContextualTuple.ToContextualTupleKeys(contextualTuplesFactory(checksAsList[index])),
+            consistency,
+            cancellationToken
+        )).ToList();
+
+        return MapResultsByCheck(checksAsList, results);
+    }
+
+    /// <summary>Projects typed checks to raw batch tuple keys, preserving order.</summary>
+    private static List<TupleKey> ToBatchTupleKeys<TObjId>(
+        List<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> checks
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>
+        => checks.Select(check => new TupleKey {
+                User = check.User.AsOpenFgaIdTupleString(),
+                Relation = check.Relation.AsOpenFgaString(),
+                Object = check.Object.AsOpenFgaIdTupleString(),
+            }
+        ).ToList();
+
+    /// <summary>
+    ///     Maps positional batch results back to their checks. Uses the indexer (not IndexOf) so
+    ///     duplicate checks collapse to a single entry instead of throwing or mis-mapping.
+    /// </summary>
+    private static Dictionary<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object), bool>
+        MapResultsByCheck<TObjId>(
+            List<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> checks,
+            List<bool> results
+        )
+        where TObjId : ISealedFgaTypeId<TObjId> {
         var resultsByCheck =
             new Dictionary<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object), bool>();
-        for (var i = 0; i < checksAsList.Count; i++) {
-            var check = checksAsList[i];
+        for (var i = 0; i < checks.Count; i++) {
+            var check = checks[i];
             resultsByCheck[(check.User, check.Relation, check.Object)] = results[i];
         }
 
         return resultsByCheck;
+    }
+
+    /// <summary>Maps an OpenFGA <c>ListUsers</c> response to the typed, wildcard-aware result.</summary>
+    internal static SealedFgaListUsersResult<TUserId> MapListUsersResult<TUserId>(IEnumerable<User> users)
+        where TUserId : ISealedFgaTypeId<TUserId> {
+        var concrete = new List<TUserId>();
+        var usersets = new List<SealedFgaListUsersUserset<TUserId>>();
+        var hasWildcard = false;
+
+        foreach (var user in users) {
+            if (user.Object is not null) {
+                concrete.Add(IdUtil.ParseId<TUserId>(user.Object.Id));
+            } else if (user.Userset is not null) {
+                usersets.Add(new SealedFgaListUsersUserset<TUserId>(
+                    IdUtil.ParseId<TUserId>(user.Userset.Id),
+                    user.Userset.Relation
+                ));
+            } else if (user.Wildcard is not null) {
+                hasWildcard = true;
+            }
+        }
+
+        return new SealedFgaListUsersResult<TUserId>(concrete, usersets, hasWildcard);
     }
 
     #endregion
@@ -268,17 +452,49 @@ public class SealedFgaService(
         SealedFgaQueryOptions? queryOptions = null,
         CancellationToken cancellationToken = new()
     ) {
+        var consistency = ResolveListConsistency(queryOptions);
         var response = await openFgaClient.ListObjects(new ClientListObjectsRequest {
                 User = rawUser,
                 Relation = rawRelation,
                 Type = objectTypeName,
                 ContextualTuples = queryOptions?.ToClientTupleKeys(),
             },
-            queryOptions is null ? null : new ClientListObjectsOptions { Consistency = queryOptions.Consistency },
+            consistency is null ? null : new ClientListObjectsOptions { Consistency = consistency },
             cancellationToken
         );
 
         return response.Objects;
+    }
+
+    /// <summary>
+    ///     Lists the subjects related to an object using raw request parts. Single-shot (no
+    ///     continuation token in the SDK response); honors <see cref="SealedFgaOptions.DefaultListConsistency" />.
+    /// </summary>
+    /// <param name="fgaObject">The object whose subjects are listed.</param>
+    /// <param name="rawRelation">The relation string.</param>
+    /// <param name="userFilters">The user-type filters constraining which subject types are returned.</param>
+    /// <param name="queryOptions">Optional per-call options (contextual tuples, consistency).</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The raw OpenFGA users from the response (empty when none).</returns>
+    internal async Task<List<User>> ListUsersAsync(
+        FgaObject fgaObject,
+        string rawRelation,
+        List<UserTypeFilter> userFilters,
+        SealedFgaQueryOptions? queryOptions = null,
+        CancellationToken cancellationToken = new()
+    ) {
+        var consistency = ResolveListConsistency(queryOptions);
+        var response = await openFgaClient.ListUsers(new ClientListUsersRequest {
+                Object = fgaObject,
+                Relation = rawRelation,
+                UserFilters = userFilters,
+                ContextualTuples = queryOptions?.ToClientTupleKeys(),
+            },
+            consistency is null ? null : new ClientListUsersOptions { Consistency = consistency },
+            cancellationToken
+        );
+
+        return response.Users ?? [];
     }
 
     /// <summary>
@@ -353,19 +569,24 @@ public class SealedFgaService(
     }
 
     /// <summary>
-    ///     Performs batch check operations using raw strings.
+    ///     The core batch-check path (raw strings). Contextual tuples are resolved <b>per item</b> via
+    ///     <paramref name="contextualTuplesByIndex" /> — this is what makes both a single shared tuple
+    ///     set and per-object tuple sets expressible over the same request.
     /// </summary>
-    /// <param name="checks">List of check requests with raw strings</param>
-    /// <param name="queryOptions">Optional per-call options (contextual tuples, consistency), applied to every check in the batch</param>
+    /// <param name="checks">Check requests, in the order results are mapped back to.</param>
+    /// <param name="contextualTuplesByIndex">
+    ///     Returns the contextual tuples for the check at the given index (or <c>null</c> for none).
+    /// </param>
+    /// <param name="consistency">Optional read consistency applied to the whole batch.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Results in the same order as input checks</returns>
-    internal async Task<IEnumerable<bool>> BatchCheckAsync(
-        IEnumerable<TupleKey> checks,
-        SealedFgaQueryOptions? queryOptions = null,
-        CancellationToken cancellationToken = new()
+    internal async Task<IEnumerable<bool>> BatchCheckCoreAsync(
+        IReadOnlyList<TupleKey> checks,
+        Func<int, ContextualTupleKeys?> contextualTuplesByIndex,
+        ConsistencyPreference? consistency,
+        CancellationToken cancellationToken
     ) {
-        var checksAsList = checks.ToList();
-        if (checksAsList.Count == 0) {
+        if (checks.Count == 0) {
             return [];
         }
 
@@ -373,14 +594,12 @@ public class SealedFgaService(
         // (matching OpenFGA's ^[\w\d-]{1,36}$ constraint) so results — which may come back in any
         // order — map deterministically back to the input order. The SDK auto-chunks to the server's
         // batch limit and bounds parallelism internally, so no manual fan-out is needed.
-        // Contextual tuples apply per item, so the (shared, read-only) set is attached to every check.
-        var contextualTuples = queryOptions?.ToContextualTupleKeys();
         var request = new ClientBatchCheckRequest {
-            Checks = checksAsList.Select((check, index) => new ClientBatchCheckItem {
+            Checks = checks.Select((check, index) => new ClientBatchCheckItem {
                     User = check.User,
                     Relation = check.Relation,
                     Object = check.Object,
-                    ContextualTuples = contextualTuples,
+                    ContextualTuples = contextualTuplesByIndex(index),
                     CorrelationId = index.ToString(CultureInfo.InvariantCulture),
                 }
             ).ToList(),
@@ -388,11 +607,11 @@ public class SealedFgaService(
 
         var response = await openFgaClient.BatchCheck(
             request,
-            queryOptions is null ? null : new ClientBatchCheckOptions { Consistency = queryOptions.Consistency },
+            consistency is null ? null : new ClientBatchCheckOptions { Consistency = consistency },
             cancellationToken
         );
 
-        return MapBatchCheckResults(response.Result, checksAsList.Count);
+        return MapBatchCheckResults(response.Result, checks.Count);
     }
 
     /// <summary>

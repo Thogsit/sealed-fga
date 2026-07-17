@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using OpenFga.Sdk.Client.Model;
+using OpenFga.Sdk.Model;
 using SealedFga.AuthModel;
 
 namespace SealedFga.Fga;
@@ -45,5 +49,51 @@ public readonly struct SealedFgaContextualTuple {
             relation.AsOpenFgaString(),
             objectId.AsOpenFgaIdTupleString()
         );
+    }
+
+    /// <summary>
+    ///     Maps a tuple collection to the SDK shape used by <c>Check</c>/<c>ListObjects</c>/<c>ListUsers</c>
+    ///     request bodies; <c>null</c> when the collection is null/empty. Rejects default-constructed entries.
+    /// </summary>
+    internal static List<ClientTupleKey>? ToClientTupleKeys(IReadOnlyCollection<SealedFgaContextualTuple>? tuples)
+        => tuples is not { Count: > 0 }
+            ? null
+            : tuples.Select(tuple => {
+                    tuple.EnsureNotDefault();
+                    return new ClientTupleKey {
+                        User = tuple.User,
+                        Relation = tuple.Relation,
+                        Object = tuple.Object,
+                    };
+                }
+            ).ToList();
+
+    /// <summary>
+    ///     Maps a tuple collection to the SDK shape used by <c>BatchCheck</c> items; <c>null</c> when the
+    ///     collection is null/empty. Rejects default-constructed entries.
+    /// </summary>
+    internal static ContextualTupleKeys? ToContextualTupleKeys(IReadOnlyCollection<SealedFgaContextualTuple>? tuples)
+        => tuples is not { Count: > 0 }
+            ? null
+            : new ContextualTupleKeys {
+                TupleKeys = tuples.Select(tuple => {
+                        tuple.EnsureNotDefault();
+                        return new TupleKey {
+                            User = tuple.User,
+                            Relation = tuple.Relation,
+                            Object = tuple.Object,
+                        };
+                    }
+                ).ToList(),
+            };
+
+    /// <summary>Throws if this is a <c>default</c>-constructed instance carrying no tuple.</summary>
+    private void EnsureNotDefault() {
+        if (IsDefault) {
+            throw new ArgumentException(
+                $"A default-constructed {nameof(SealedFgaContextualTuple)} carries no tuple; build "
+                + $"entries via {nameof(SealedFgaContextualTuple)}.{nameof(Of)}(...)."
+            );
+        }
     }
 }

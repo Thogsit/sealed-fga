@@ -20,6 +20,23 @@ public interface ISealedFgaBinderOptionsProvider {
     /// </summary>
     /// <param name="context">The operation about to be performed.</param>
     ValueTask<SealedFgaQueryOptions?> GetOptionsAsync(SealedFgaBinderOptionsContext context);
+
+    /// <summary>
+    ///     Returns the access <see cref="SealedFgaListVerdict" /> for a <c>[FgaAuthorizeList]</c>
+    ///     binding — the hook that lets a provider grant full access (skip <c>ListObjects</c> and hand
+    ///     the action the unfiltered <c>DbSet</c>) or a custom ID scope, instead of only supplying
+    ///     options. Only invoked for <see cref="SealedFgaBinderOperation.List" />.
+    ///     <para>
+    ///         The default keeps the pre-verdict behavior: it wraps <see cref="GetOptionsAsync" /> in
+    ///         a <see cref="SealedFgaListVerdict.Normal(SealedFgaQueryOptions?)" /> verdict, so existing
+    ///         providers work unchanged. Override it to return
+    ///         <see cref="SealedFgaListVerdict.FullAccess" /> or
+    ///         <see cref="SealedFgaListVerdict.ScopedToIds" /> for super-user / custom scenarios.
+    ///     </para>
+    /// </summary>
+    /// <param name="context">The list operation about to be performed.</param>
+    async ValueTask<SealedFgaListVerdict> GetListVerdictAsync(SealedFgaBinderOptionsContext context)
+        => SealedFgaListVerdict.Normal(await GetOptionsAsync(context));
 }
 
 /// <summary>The kind of OpenFGA operation a SealedFGA model binder is about to perform.</summary>

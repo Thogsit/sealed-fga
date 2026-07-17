@@ -100,6 +100,45 @@ public class OutboxEnqueueExtensionsTests {
     }
 
     [Fact]
+    public void EnqueueFgaDeleteAllForObject_adds_a_fence_row_matching_the_interceptor_shape() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var obj = TestObjectId.New();
+        ctx.EnqueueFgaDeleteAllForObject(obj);
+
+        var row = PendingOutbox(ctx).Single();
+        row.OperationType.ShouldBe(SealedFgaOutboxOperationType.DeleteAllForObject);
+        row.TargetId.ShouldBe(obj.AsOpenFgaIdTupleString());
+        row.TypeName.ShouldBe(TestObjectId.OpenFgaTypeName);
+        // Fences carry no tuple columns.
+        row.TupleUser.ShouldBeNull();
+        row.TupleRelation.ShouldBeNull();
+        row.TupleObject.ShouldBeNull();
+    }
+
+    [Fact]
+    public void EnqueueFgaDeleteAllForObject_rejects_a_default_id() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        Should.Throw<ArgumentException>(() => ctx.EnqueueFgaDeleteAllForObject(default(TestObjectId)));
+        PendingOutbox(ctx).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EnqueueFgaDeleteAllForObject_on_context_without_outbox_throws() {
+        using var ctx = new NoOutboxDbContext(
+            new DbContextOptionsBuilder<NoOutboxDbContext>()
+               .UseInMemoryDatabase(Guid.NewGuid().ToString())
+               .Options
+        );
+
+        Should.Throw<InvalidOperationException>(() => ctx.EnqueueFgaDeleteAllForObject(TestObjectId.New()))
+              .Message.ShouldContain("AddSealedFga");
+    }
+
+    [Fact]
     public void EnqueueFga_with_empty_batches_adds_nothing() {
         var (ctx, conn) = TestDbContext.CreateSqlite();
         using var _ = conn;

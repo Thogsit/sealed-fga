@@ -98,6 +98,35 @@ public class GeneratorTests {
     }
 
     [Fact]
+    public Task Int_backed_id_omits_new_and_uses_numeric_converters() {
+        // release-channel has an int-backed ID (SCBackend's real case). The generated struct must
+        // omit New() (no sensible generated value for an identity column) and wire the Int32
+        // TypeConverter/JSON/EF converters.
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Int)]
+            public readonly partial record struct SecretEntityId;
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
+    public Task Long_backed_id_omits_new_and_uses_numeric_converters() {
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Long)]
+            public readonly partial record struct SecretEntityId;
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
     public Task Multiple_id_classes_register_in_init() {
         const string source =
             """

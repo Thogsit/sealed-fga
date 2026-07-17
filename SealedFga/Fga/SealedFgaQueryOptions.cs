@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using OpenFga.Sdk.Client.Model;
 using OpenFga.Sdk.Model;
 
@@ -31,43 +29,12 @@ public sealed class SealedFgaQueryOptions {
     ///     <c>ListObjects</c> request bodies; <c>null</c> when no tuples were supplied.
     /// </summary>
     internal List<ClientTupleKey>? ToClientTupleKeys()
-        => ContextualTuples is not { Count: > 0 }
-            ? null
-            : ContextualTuples.Select(tuple => {
-                    RejectDefault(tuple);
-                    return new ClientTupleKey {
-                        User = tuple.User,
-                        Relation = tuple.Relation,
-                        Object = tuple.Object,
-                    };
-                }
-            ).ToList();
+        => SealedFgaContextualTuple.ToClientTupleKeys(ContextualTuples);
 
     /// <summary>
     ///     Maps <see cref="ContextualTuples" /> to the SDK shape used by <c>BatchCheck</c> items;
     ///     <c>null</c> when no tuples were supplied.
     /// </summary>
     internal ContextualTupleKeys? ToContextualTupleKeys()
-        => ContextualTuples is not { Count: > 0 }
-            ? null
-            : new ContextualTupleKeys {
-                TupleKeys = ContextualTuples.Select(tuple => {
-                        RejectDefault(tuple);
-                        return new TupleKey {
-                            User = tuple.User,
-                            Relation = tuple.Relation,
-                            Object = tuple.Object,
-                        };
-                    }
-                ).ToList(),
-            };
-
-    private static void RejectDefault(SealedFgaContextualTuple tuple) {
-        if (tuple.IsDefault) {
-            throw new ArgumentException(
-                $"A default-constructed {nameof(SealedFgaContextualTuple)} carries no tuple; build "
-                + $"entries via {nameof(SealedFgaContextualTuple)}.{nameof(SealedFgaContextualTuple.Of)}(...)."
-            );
-        }
-    }
+        => SealedFgaContextualTuple.ToContextualTupleKeys(ContextualTuples);
 }

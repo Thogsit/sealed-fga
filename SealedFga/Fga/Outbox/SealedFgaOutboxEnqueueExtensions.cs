@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using SealedFga.AuthModel;
+using SealedFga.Util;
 
 namespace SealedFga.Fga.Outbox;
 
@@ -53,6 +54,43 @@ public static class SealedFgaOutboxEnqueueExtensions {
     ) where TObjId : ISealedFgaTypeId<TObjId> {
         var op = SealedFgaTupleOperation.Of(user, relation, objectId);
         OutboxSetOf(db).Add(SealedFgaOutboxEntry.ForDelete(op.User, op.Relation, op.Object));
+    }
+
+    /// <summary>
+    ///     Enqueues a <b>delete-all-for-object</b> fence: purges every stored tuple that references
+    ///     the given object — as the object <b>and</b> as the user/subject (including userset
+    ///     subjects) — mirroring exactly what the delete interceptor enqueues when an FGA entity is
+    ///     removed. Use it when tuples are purged from application code (e.g. revoking a share grant)
+    ///     rather than by deleting the owning entity.
+    ///     <para>
+    ///         <b>This is an ordering fence, and it is expensive.</b> Applying it scans the OpenFGA
+    ///         store in both directions (object side and subject side) to enumerate the tuples to
+    ///         delete, and — as a fence — it serializes ordering against other outbox rows for the
+    ///         same object. Enqueue it for genuine object purges, not as a high-frequency per-tuple
+    ///         operation; for known individual tuples prefer <see cref="EnqueueFgaDelete{TObjId}" />
+    ///         or <see cref="EnqueueFga" />.
+    ///     </para>
+    /// </summary>
+    /// <param name="db">A DbContext with the SealedFGA outbox configured.</param>
+    /// <param name="id">The object to purge (strongly typed).</param>
+    public static void EnqueueFgaDeleteAllForObject<TObjId>(
+        this DbContext db,
+        TObjId id
+    ) where TObjId : ISealedFgaTypeId<TObjId> {
+        // A fence on a default (all-zero/unset) ID would target "type:<default>" — never a real
+        // entity — and is always a bug, so reject it loudly rather than enqueue a useless scan.
+        if (EqualityComparer<TObjId>.Default.Equals(id, default!)) {
+            throw new ArgumentException(
+                $"Cannot enqueue a delete-all-for-object fence for a default {typeof(TObjId).Name}; "
+                + "pass the ID of an existing object.",
+                nameof(id)
+            );
+        }
+
+        OutboxSetOf(db).Add(SealedFgaOutboxEntry.ForDeleteAllForObject(
+            id.AsOpenFgaIdTupleString(),
+            IdUtil.GetNameByIdType(typeof(TObjId))
+        ));
     }
 
     /// <summary>
