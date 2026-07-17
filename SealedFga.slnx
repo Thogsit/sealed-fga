@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="docker-compose.yml" />
+    <File Path="README.md" />
+    <File Path="settings.props" />
+  </Folder>
+  <Project Path="openfga-language/pkg/csharp/OpenFga.Language.csproj" />
+  <Project Path="SealedFga.Sample/SealedFga.Sample.csproj" />
+  <Project Path="SealedFga.Tests/SealedFga.Tests.csproj" />
+  <Project Path="SealedFga.IntegrationTests/SealedFga.IntegrationTests.csproj" />
+  <!-- SealedFga.PackagingTests is intentionally NOT part of this solution: it consumes SealedFga as a
+       packed NuGet package (analyzer + runtime, as shipped), which must be packed into the local feed
+       before it can restore. It is driven standalone via pack-then-test (see its README / the CI job). -->
+  <Project Path="SealedFga/SealedFga.csproj" />
+  <Project Path="SealedFga.Analyzers/SealedFga.Analyzers.csproj" />
+</Solution>

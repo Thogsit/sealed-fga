@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- LangVersion is intentionally NOT set: the SealedFga package's build props supply it,
+         which this test verifies. -->
+    <RootNamespace>SealedFga.PackagingTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- Inspect the generator output on disk for debugging. -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
+  </ItemGroup>
+
+  <!-- A real SealedFga consumer is an ASP.NET Core app: the generated wiring uses IApplicationBuilder /
+       MVC model binders, and the runtime library references ASP.NET Core assemblies. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(MicrosoftNetTestSdkVersion)" />
+    <PackageReference Include="xunit" Version="$(XunitVersion)" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="$(XunitRunnerVisualStudioVersion)" />
+    <PackageReference Include="Shouldly" Version="$(ShouldlyVersion)" />
+
+    <!-- The consumer runtime: EF Core at the version the package itself depends on. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+
+    <!-- SealedFga consumed as the packed NuGet package (runtime lib + analyzer payload),
+         restored from the local feed — exactly what a real consumer resolves. -->
+    <PackageReference Include="SealedFga" Version="$(SealedFgaVersion)" />
+  </ItemGroup>
+
+  <!-- No <AdditionalFiles Include="model.fga" /> here on purpose: the SealedFga package's build props
+       auto-include *.fga files. This test verifies that auto-include works from a real NuGet consumer. -->
+</Project>

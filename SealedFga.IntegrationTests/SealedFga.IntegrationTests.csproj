@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga.IntegrationTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Host the SealedFga.Sample web app in-process via WebApplicationFactory. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.8.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(MicrosoftNetTestSdkVersion)" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <PackageReference Include="xunit" Version="$(XunitVersion)" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="$(XunitRunnerVisualStudioVersion)" />
+    <PackageReference Include="Shouldly" Version="$(ShouldlyVersion)" />
+    <PackageReference Include="Testcontainers" Version="$(TestcontainersVersion)" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="$(MicrosoftAspNetCoreMvcTestingVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SealedFga\SealedFga.csproj" />
+    <!-- Reuse the shared test entities / DbContext / strongly-typed IDs from the unit-test project. -->
+    <ProjectReference Include="..\SealedFga.Tests\SealedFga.Tests.csproj" />
+    <!-- The web host under test (runs the source generator internally). -->
+    <ProjectReference Include="..\SealedFga.Sample\SealedFga.Sample.csproj" />
+    <!-- OpenFgaFromDslTransformer, to load the Sample's real model.fga into the test OpenFGA store. -->
+    <ProjectReference Include="..\openfga-language\pkg\csharp\OpenFga.Language.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copy the Sample's authorization model next to the test output so the fixture can read it. -->
+    <None Include="..\SealedFga.Sample\model.fga" Link="model.fga">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <!-- Roslyn components must target netstandard2.0; the runtime library (SealedFga) targets
+         net10.0 and is packed together with this generator into the single SealedFga package. -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga</RootNamespace>
+
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+
+    <!-- Not packed on its own: the SealedFga runtime project packs this assembly (plus the vendored
+         OpenFga.Language.dll) into analyzers/dotnet/cs of the single SealedFga package. -->
+    <IsPackable>false</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisVersion)" PrivateAssets="all" />
+    <PackageReference Include="System.Collections.Immutable" Version="$(SystemCollectionsImmutableVersion)" PrivateAssets="all" />
+    <PackageReference Include="PolySharp" Version="1.15.0" PrivateAssets="all" />
+
+    <!-- Used to parse the model.fga file (ANTLR is ILRepack-merged into OpenFga.Language.dll) -->
+    <ProjectReference Include="..\openfga-language\pkg\csharp\OpenFga.Language.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

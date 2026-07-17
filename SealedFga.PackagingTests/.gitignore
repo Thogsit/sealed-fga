@@ -1,0 +1,2 @@
+# The SealedFga package is packed here fresh before each test run; never commit it.
+local-packages/

@@ -1,0 +1,24 @@
+<Project>
+  <!-- Imported automatically into every project that references the SealedFga NuGet package
+       (NuGet imports build/<PackageId>.props). Removes the manual .csproj setup a consumer would
+       otherwise have to do. -->
+
+  <!-- SealedFGA's generated code and attributes rely on recent C# language features. Default the
+       language version to preview unless the consumer has explicitly chosen one. -->
+  <PropertyGroup Condition="'$(LangVersion)' == ''">
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <!-- Feed every OpenFGA model file (*.fga) to the SealedFGA source generator automatically, so
+       consumers don't have to declare <AdditionalFiles> by hand. bin/obj are excluded. -->
+  <ItemGroup>
+    <AdditionalFiles Include="**/*.fga" Exclude="**/bin/**;**/obj/**" KeepDuplicates="false" />
+  </ItemGroup>
+
+  <!-- Expose the SealedFgaSplitRelationClasses MSBuild property to the source generator. Default
+       true: relation constants split by casing into {Type}IdPermissions (lowercase) and
+       {Type}IdGroups (uppercase). Set to false for a single {Type}IdRelations class per type. -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="SealedFgaSplitRelationClasses" />
+  </ItemGroup>
+</Project>

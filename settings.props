@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <SealedFgaVersion>0.1.0</SealedFgaVersion>
+    <MicrosoftCodeAnalysisVersion>4.14.0</MicrosoftCodeAnalysisVersion>
+    <OpenFgaSdkVersion>0.10.0</OpenFgaSdkVersion>
+    <MicrosoftEntityFrameworkCoreVersion>10.0.10</MicrosoftEntityFrameworkCoreVersion>
+    <SystemCollectionsImmutableVersion>9.0.0</SystemCollectionsImmutableVersion>
+
+    <!-- Test tooling -->
+    <MicrosoftNetTestSdkVersion>17.12.0</MicrosoftNetTestSdkVersion>
+    <XunitVersion>2.9.3</XunitVersion>
+    <XunitRunnerVisualStudioVersion>2.8.2</XunitRunnerVisualStudioVersion>
+    <ShouldlyVersion>4.2.1</ShouldlyVersion>
+    <MicrosoftAspNetCoreMvcTestingVersion>10.0.8</MicrosoftAspNetCoreMvcTestingVersion>
+    <VerifyXunitVersion>28.9.0</VerifyXunitVersion>
+    <VerifySourceGeneratorsVersion>2.5.0</VerifySourceGeneratorsVersion>
+    <TestcontainersVersion>4.13.0</TestcontainersVersion>
+  </PropertyGroup>
+</Project>

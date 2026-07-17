@@ -1,0 +1,52 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Verify: never try to pop a diff tool or touch the clipboard on a headless runner.
+      DiffEngine_Disabled: 'true'
+      Verify_DisableClipboard: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build solution
+        run: dotnet build SealedFga.slnx -c Release
+
+      # Tier A (unit) + Tier B (source-generator snapshots). Fast, no infrastructure.
+      - name: Unit & generator tests
+        run: dotnet test SealedFga.Tests/SealedFga.Tests.csproj -c Release --no-build
+
+      # Tier C: exercises SealedFgaService + the outbox drainer against a real OpenFGA server.
+      # GitHub-hosted Linux runners ship Docker, so Testcontainers works out of the box.
+      - name: Integration tests (OpenFGA via Testcontainers)
+        run: dotnet test SealedFga.IntegrationTests/SealedFga.IntegrationTests.csproj -c Release --no-build
+
+      # Tier D: consume SealedFga as the packed NuGet package, exactly as shipped.
+      - name: Pack SealedFga into the local feed
+        run: dotnet pack SealedFga/SealedFga.csproj -c Release -o SealedFga.PackagingTests/local-packages
+
+      - name: Clear cached SealedFga package
+        # The package version is fixed, so NuGet would otherwise reuse a stale cached copy.
+        run: rm -rf ~/.nuget/packages/sealedfga
+
+      - name: Packaging tests (as-shipped)
+        run: dotnet test SealedFga.PackagingTests/SealedFga.PackagingTests.csproj -c Release
+
+      # Make Verify snapshot mismatches reviewable from the CI run.
+      - name: Upload Verify diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-diffs
+          path: '**/*.received.*'
+          if-no-files-found: ignore

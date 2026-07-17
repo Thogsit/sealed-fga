@@ -1,0 +1,23 @@
+﻿{
+  Diagnostics: [
+    {
+      Location: /*
+namespace TestApp;
+[SealedFgaTypeId("does_not_exist", SealedFgaTypeIdType.Guid)]
+ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+public readonly partial record struct GhostEntityId;
+*/
+ : (3,1)-(3,60),
+      Message: The [SealedFgaTypeId] attribute references an unknown OpenFGA type name: does_not_exist. Please make sure the type name exists in your '*.fga' model file.,
+      Severity: Error,
+      Descriptor: {
+        Id: SFGA002,
+        Title: Unknown OpenFGA type name,
+        MessageFormat: The [SealedFgaTypeId] attribute references an unknown OpenFGA type name: {0}. Please make sure the type name exists in your '*.fga' model file.,
+        Category: Security,
+        DefaultSeverity: Error,
+        IsEnabledByDefault: true
+      }
+    }
+  ]
+}

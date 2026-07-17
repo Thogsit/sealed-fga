@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga</RootNamespace>
+    <PackageId>SealedFga</PackageId>
+    <Version>$(SealedFgaVersion)</Version>
+
+    <!-- Package metadata -->
+    <Title>SealedFGA</Title>
+    <Description>A Roslyn analyzer and source generator for improved OpenFGA integration</Description>
+    <Authors>Leonard Sondermann</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Thogsit/sealed-fga</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Thogsit/sealed-fga</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>roslyn;analyzer;source-generator;openfga;authorization</PackageTags>
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+
+    <!-- This project is the runtime half AND the packaging root: the SealedFga.Analyzers generator
+         is built alongside and packed into analyzers/dotnet/cs of this single SealedFga package,
+         while this assembly lands in lib/net10.0. Generator and runtime move in lockstep by design
+         (the generated code calls runtime types), hence one package. -->
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <DevelopmentDependency>false</DevelopmentDependency>
+    <IncludeSymbols>true</IncludeSymbols>
+    <IncludeSource>true</IncludeSource>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+  </PropertyGroup>
+
+  <!-- Expose internals to the test projects so pure helpers can be unit-tested directly. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SealedFga.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SealedFga.IntegrationTests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real consumer-facing dependencies; deliberately NOT PrivateAssets so they appear in the
+         package's dependency metadata (a consumer needs EF Core + ASP.NET Core + OpenFga.Sdk). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <!-- Relational is needed for the drainer lease + retention sweep (ExecuteUpdate/ExecuteDelete,
+         IsRelational). Already a transitive dependency of every relational EF provider. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="$(MicrosoftEntityFrameworkCoreVersion)" />
+    <PackageReference Include="OpenFga.Sdk" Version="$(OpenFgaSdkVersion)" />
+
+    <!-- Build-order only: the generator assembly is packed below but never referenced. -->
+    <ProjectReference Include="..\SealedFga.Analyzers\SealedFga.Analyzers.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The source-generator payload. Literal paths (no globs): globs are expanded at evaluation
+         time and would be empty on a clean build; literal None items resolve at pack time, after
+         the Analyzers project has built. ANTLR is ILRepack-merged into OpenFga.Language.dll, and
+         the Roslyn host supplies System.Collections.Immutable — nothing else needs to be packed. -->
+    <None Include="..\SealedFga.Analyzers\bin\$(Configuration)\netstandard2.0\SealedFga.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="..\SealedFga.Analyzers\bin\$(Configuration)\netstandard2.0\OpenFga.Language.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+
+    <!-- MSBuild props auto-imported into consumer projects (auto AdditionalFiles for *.fga + LangVersion).
+         NuGet imports build/<PackageId>.props, so the file name must be exactly SealedFga.props. -->
+    <None Include="build/SealedFga.props" Pack="true" PackagePath="build/" />
+
+    <!-- Include README and third-party attribution (OpenFga.Language.dll is Apache-2.0). -->
+    <None Include="Readme.md" Pack="true" PackagePath="\" />
+    <None Include="..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>
