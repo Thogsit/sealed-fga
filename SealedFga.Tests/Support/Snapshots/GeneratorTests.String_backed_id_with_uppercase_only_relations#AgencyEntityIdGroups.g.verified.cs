@@ -15,6 +15,7 @@ namespace TestApp;
 public class AgencyEntityIdGroups(string val)
 : SealedFgaRelation(val), ISealedFgaRelation<AgencyEntityId>
 {
+    /// <summary>The <c>Member</c> relation.</summary>
     public static readonly AgencyEntityIdGroups Member = new AgencyEntityIdGroups("Member");
 
 

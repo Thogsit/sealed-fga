@@ -103,7 +103,11 @@ internal static class TypeNameRelationsGenerator {
 
     private static string GetEnumFields(string className, List<string> relNames)
         => GeneratorUtil.BuildLinesWithIndent(
-            relNames.Select(rel => $"public static readonly {className} {rel} = new {className}(\"{rel}\");"),
+            relNames.SelectMany(rel => new[] {
+                    $"/// <summary>The <c>{rel}</c> relation.</summary>",
+                    $"public static readonly {className} {rel} = new {className}(\"{rel}\");",
+                }
+            ),
             4
         );
 }

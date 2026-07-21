@@ -15,6 +15,7 @@ namespace TestApp;
 public class SecretEntityIdPermissions(string val)
 : SealedFgaRelation(val), ISealedFgaRelation<SecretEntityId>
 {
+    /// <summary>The <c>can_view</c> relation.</summary>
     public static readonly SecretEntityIdPermissions can_view = new SecretEntityIdPermissions("can_view");
 
 

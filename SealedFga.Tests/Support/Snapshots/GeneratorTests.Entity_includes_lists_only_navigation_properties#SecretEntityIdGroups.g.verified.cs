@@ -15,6 +15,7 @@ namespace TestApp;
 public class SecretEntityIdGroups(string val)
 : SealedFgaRelation(val), ISealedFgaRelation<SecretEntityId>
 {
+    /// <summary>The <c>OwnedBy</c> relation.</summary>
     public static readonly SecretEntityIdGroups OwnedBy = new SecretEntityIdGroups("OwnedBy");
 
 
