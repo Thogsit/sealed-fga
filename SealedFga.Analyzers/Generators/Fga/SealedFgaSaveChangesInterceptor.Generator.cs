@@ -8,16 +8,22 @@ internal static class SealedFgaSaveChangesInterceptorGenerator {
         => new(
             "SealedFgaSaveChangesInterceptor.g.cs",
             """
+            /// <summary>
+            ///     EF Core <see cref="SaveChangesInterceptor" /> that translates tracked entity changes
+            ///     into SealedFGA outbox entries in the same transaction (via
+            ///     <see cref="SealedFgaSaveChangesProcessor" />). Registered by
+            ///     <c>ConfigureSealedFga</c> and attached via <c>DbContextOptionsBuilder.AddSealedFga</c>.
+            /// </summary>
             public class SealedFgaSaveChangesInterceptor : SaveChangesInterceptor
             {
                 private static readonly ThreadLocal<bool> IsProcessing = new();
 
                 /// <summary>
-                ///     Wrapper around the <see cref="ProcessSealedFgaChanges(DbContext?)" /> method
+                ///     Wrapper around <see cref="SealedFgaSaveChangesProcessor.ProcessSealedFgaChanges" />
                 ///     that ensures that it is not called recursively.
                 ///     This can e.g. happen due to the TickerQ usage for SealedFGA change tracking.
                 /// </summary>
-                /// <param name="context"></param>
+                /// <param name="context">The context whose tracked changes are processed.</param>
                 private void RecursionSafeProcessSealedFgaChanges(DbContext? context) {
                     if (IsProcessing.Value) {
                         return;
