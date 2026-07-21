@@ -94,6 +94,9 @@ public static class SealedFgaExtensions {
     ) where TDbContext : DbContext
     {
         services.AddScoped<SealedFgaService>();
+        // The interface resolves to the same scoped instance so consumers can depend on
+        // ISealedFgaService (mockable) while library internals keep the concrete class.
+        services.AddScoped<ISealedFgaService>(sp => sp.GetRequiredService<SealedFgaService>());
         services.AddScoped<SealedFgaSaveChangesInterceptor>();
         // Singleton: the authorization-model cache is shared across the scoped services.
         services.TryAddSingleton<SealedFgaAuthModelCache>();
