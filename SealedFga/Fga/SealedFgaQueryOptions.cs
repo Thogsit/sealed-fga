@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using OpenFga.Sdk.Client.Model;
 using OpenFga.Sdk.Model;
 
@@ -37,4 +38,40 @@ public sealed class SealedFgaQueryOptions {
     /// </summary>
     internal ContextualTupleKeys? ToContextualTupleKeys()
         => SealedFgaContextualTuple.ToContextualTupleKeys(ContextualTuples);
+
+    /// <summary>
+    ///     Merges ambient options (from an <see cref="ISealedFgaAmbientOptionsProvider" />) with the
+    ///     explicit per-call options for a single concrete-object operation:
+    ///     <see cref="ContextualTuples" /> are unioned (both sets are sent), while an explicit per-call
+    ///     <see cref="Consistency" /> wins over the ambient one. Returns <see cref="Object.ReferenceEquals" />-
+    ///     identical <paramref name="perCall" /> when <paramref name="ambient" /> contributes nothing (and
+    ///     vice-versa), and <c>null</c> when neither carries anything — preserving the no-provider fast path.
+    /// </summary>
+    internal static SealedFgaQueryOptions? Merge(SealedFgaQueryOptions? ambient, SealedFgaQueryOptions? perCall) {
+        if (ambient is null) {
+            return perCall;
+        }
+
+        if (perCall is null) {
+            return ambient;
+        }
+
+        // Union the two tuple sets, dropping empties so the result stays null when neither has any.
+        var ambientTuples = ambient.ContextualTuples;
+        var perCallTuples = perCall.ContextualTuples;
+        IReadOnlyCollection<SealedFgaContextualTuple>? mergedTuples;
+        if (ambientTuples is not { Count: > 0 }) {
+            mergedTuples = perCallTuples;
+        } else if (perCallTuples is not { Count: > 0 }) {
+            mergedTuples = ambientTuples;
+        } else {
+            mergedTuples = ambientTuples.Concat(perCallTuples).ToList();
+        }
+
+        return new SealedFgaQueryOptions {
+            // Explicit per-call consistency wins; else the ambient one; else null.
+            Consistency = perCall.Consistency ?? ambient.Consistency,
+            ContextualTuples = mergedTuples,
+        };
+    }
 }

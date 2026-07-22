@@ -10,7 +10,6 @@ using SealedFga.Fga;
 using SealedFga.Tests.Support;
 using Shouldly;
 using Xunit;
-using TupleKey = OpenFga.Sdk.Model.TupleKey;
 
 namespace SealedFga.IntegrationTests;
 
@@ -25,9 +24,7 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     [Fact]
     public async Task CheckAsync_reflects_written_tuples() {
         var objId = GuidOf("check1");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = "testuser:alice", Relation = "can_view", Object = $"testobject:{objId}" },
-        ]);
+        await fga.Service.WriteAsync(new TestUserId("alice"), new ObjRelation("can_view"), TestObjectId.Parse(objId));
 
         (await fga.Service.CheckAsync(new TestUserId("alice"), new ObjRelation("can_view"), TestObjectId.Parse(objId)))
             .ShouldBeTrue();
@@ -46,9 +43,7 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     [Fact]
     public async Task ListObjectsAsync_returns_authorized_objects_as_strong_ids() {
         var objId = GuidOf("list1");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = "testuser:diana", Relation = "can_view", Object = $"testobject:{objId}" },
-        ]);
+        await fga.Service.WriteAsync(new TestUserId("diana"), new ObjRelation("can_view"), TestObjectId.Parse(objId));
 
         var objects = (await fga.Service.ListObjectsAsync(new TestUserId("diana"), new ObjRelation("can_view"))).ToList();
 
@@ -57,18 +52,20 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
 
     [Fact]
     public async Task Write_and_Delete_are_idempotent() {
-        var tk = new TupleKey { User = "testuser:carol", Relation = "can_view", Object = $"testobject:{GuidOf("idemp")}" };
+        var user = new TestUserId("carol");
+        var objId = TestObjectId.Parse(GuidOf("idemp"));
+        var canView = new ObjRelation("can_view");
 
-        await fga.Service.WriteTuplesAsync([tk]);
-        await fga.Service.WriteTuplesAsync([tk]); // second write must be a no-op, not an error
+        await fga.Service.WriteAsync(user, canView, objId);
+        await fga.Service.WriteAsync(user, canView, objId); // second write must be a no-op, not an error
 
-        var afterWrite = await fga.Client.Read(new ClientReadRequest { Object = tk.Object });
+        var afterWrite = await fga.Client.Read(new ClientReadRequest { Object = objId.AsOpenFgaIdTupleString() });
         afterWrite.Tuples.Count.ShouldBe(1);
 
-        await fga.Service.DeleteTuplesAsync([tk]);
-        await fga.Service.DeleteTuplesAsync([tk]); // second delete must be a no-op
+        await fga.Service.DeleteAsync(user, canView, objId);
+        await fga.Service.DeleteAsync(user, canView, objId); // second delete must be a no-op
 
-        var afterDelete = await fga.Client.Read(new ClientReadRequest { Object = tk.Object });
+        var afterDelete = await fga.Client.Read(new ClientReadRequest { Object = objId.AsOpenFgaIdTupleString() });
         afterDelete.Tuples.ShouldBeEmpty();
     }
 
@@ -77,9 +74,9 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         var user = "erin";
         var parent = "22222222-2222-2222-2222-222222222222";
         var obj = GuidOf("delall");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = $"testuser:{user}", Relation = "can_view", Object = $"testobject:{obj}" }, // user side
-            new TupleKey { User = $"testuser:{user}", Relation = "Member", Object = $"testparent:{parent}" }, // user side
+        await fga.Service.WriteAsync([
+            SealedFgaTupleOperation.Of(new TestUserId(user), new ObjRelation("can_view"), TestObjectId.Parse(obj)),
+            SealedFgaTupleOperation.Of(new TestUserId(user), new ParentRelation("Member"), TestParentId.Parse(parent)),
         ]);
 
         await fga.Service.DeleteAllRelationsForRawObjectAsync($"testuser:{user}", "testuser");
@@ -94,17 +91,15 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         // transaction limit (~100). Exercises paginated reads (find every stored tuple) and chunked
         // writes (split the delete into multiple transactions).
         var obj = GuidOf("bigdelete");
+        var objId = TestObjectId.Parse(obj);
+        var canView = new ObjRelation("can_view");
         const int count = 150;
-        var tuples = Enumerable.Range(0, count)
-                               .Select(i => new TupleKey {
-                                    User = $"testuser:bulk-{i}",
-                                    Relation = "can_view",
-                                    Object = $"testobject:{obj}",
-                                })
+        var writes = Enumerable.Range(0, count)
+                               .Select(i => SealedFgaTupleOperation.Of(new TestUserId($"bulk-{i}"), canView, objId))
                                .ToList();
 
         // The write itself is >100 operations, so it also exercises write chunking on the write path.
-        await fga.Service.WriteTuplesAsync(tuples);
+        await fga.Service.WriteAsync(writes);
 
         // Sanity check via paginated read that all 150 landed.
         var stored = await fga.Service.ListAllRelationsToObjectAsync($"testobject:{obj}");
@@ -119,47 +114,52 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     public async Task Write_materializes_stored_tuple_when_computed_grant_already_exists() {
         // can_edit is a union: [testuser] or Member from OwnedBy. Grant fred computed access
         // via his parent's ownership, so a Check on the direct relation is already true.
-        var parent = GuidOf("uniow-parent");
-        var obj = GuidOf("union-write");
-        var direct = new TupleKey { User = "testuser:fred", Relation = "can_edit", Object = $"testobject:{obj}" };
-        var member = new TupleKey { User = "testuser:fred", Relation = "Member", Object = $"testparent:{parent}" };
-        await fga.Service.WriteTuplesAsync([
+        var parentId = TestParentId.Parse(GuidOf("uniow-parent"));
+        var objId = TestObjectId.Parse(GuidOf("union-write"));
+        var fred = new TestUserId("fred");
+        var direct = SealedFgaTupleOperation.Of(fred, new ObjRelation("can_edit"), objId);
+        var member = SealedFgaTupleOperation.Of(fred, new ParentRelation("Member"), parentId);
+        await fga.Service.WriteAsync([
             member,
-            new TupleKey { User = $"testparent:{parent}", Relation = "OwnedBy", Object = $"testobject:{obj}" },
+            SealedFgaTupleOperation.Of(parentId, new ObjRelation("OwnedBy"), objId),
         ]);
-        (await fga.Service.CheckAsync(new TestUserId("fred"), new ObjRelation("can_edit"), TestObjectId.Parse(obj)))
+        (await fga.Service.CheckAsync(fred, new ObjRelation("can_edit"), objId))
             .ShouldBeTrue(); // computed arm already grants access
 
         // The direct grant must still be materialized as a STORED tuple (the old check-then-write
         // layer skipped it because Check evaluated the computed relation).
-        await fga.Service.WriteTuplesAsync([direct]);
+        await fga.Service.WriteAsync([direct]);
 
-        var stored = await fga.Client.Read(new ClientReadRequest { User = direct.User, Object = direct.Object });
+        var stored = await fga.Client.Read(new ClientReadRequest {
+            User = fred.AsOpenFgaIdTupleString(),
+            Object = objId.AsOpenFgaIdTupleString(),
+        });
         stored.Tuples.ShouldContain(t => t.Key.Relation == "can_edit");
 
         // Revoking the computed path must leave the independent direct grant intact.
-        await fga.Service.DeleteTuplesAsync([member]);
-        (await fga.Service.CheckAsync(new TestUserId("fred"), new ObjRelation("can_edit"), TestObjectId.Parse(obj)))
+        await fga.Service.DeleteAsync([member]);
+        (await fga.Service.CheckAsync(fred, new ObjRelation("can_edit"), objId))
             .ShouldBeTrue();
     }
 
     [Fact]
     public async Task Delete_of_never_stored_tuple_with_computed_grant_is_noop() {
         // grace can_edit the object only via the computed arm; no direct tuple is ever stored.
-        var parent = GuidOf("unidel-parent");
-        var obj = GuidOf("union-delete");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = "testuser:grace", Relation = "Member", Object = $"testparent:{parent}" },
-            new TupleKey { User = $"testparent:{parent}", Relation = "OwnedBy", Object = $"testobject:{obj}" },
+        var parentId = TestParentId.Parse(GuidOf("unidel-parent"));
+        var objId = TestObjectId.Parse(GuidOf("union-delete"));
+        var grace = new TestUserId("grace");
+        await fga.Service.WriteAsync([
+            SealedFgaTupleOperation.Of(grace, new ParentRelation("Member"), parentId),
+            SealedFgaTupleOperation.Of(parentId, new ObjRelation("OwnedBy"), objId),
         ]);
 
         // Deleting the never-stored direct tuple must be a no-op (OnMissingDeletes = Ignore),
         // not an error — the old layer attempted the delete because Check saw the computed arm.
-        await fga.Service.DeleteTuplesAsync([
-            new TupleKey { User = "testuser:grace", Relation = "can_edit", Object = $"testobject:{obj}" },
+        await fga.Service.DeleteAsync([
+            SealedFgaTupleOperation.Of(grace, new ObjRelation("can_edit"), objId),
         ]);
 
-        (await fga.Service.CheckAsync(new TestUserId("grace"), new ObjRelation("can_edit"), TestObjectId.Parse(obj)))
+        (await fga.Service.CheckAsync(grace, new ObjRelation("can_edit"), objId))
             .ShouldBeTrue(); // computed access untouched
     }
 
@@ -167,23 +167,23 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     public async Task Contextual_tuple_grants_access_for_the_single_call_only() {
         // can_edit is a union: [testuser] or Member from OwnedBy. Store only the OwnedBy leg and
         // supply the Member leg as a contextual tuple — the computed arm fires for that call only.
-        var parent = GuidOf("ctx-parent");
-        var obj = GuidOf("ctx-check");
+        var parentId = TestParentId.Parse(GuidOf("ctx-parent"));
+        var objId = TestObjectId.Parse(GuidOf("ctx-check"));
         var user = new TestUserId("ctx-henry");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = $"testparent:{parent}", Relation = "OwnedBy", Object = $"testobject:{obj}" },
+        await fga.Service.WriteAsync([
+            SealedFgaTupleOperation.Of(parentId, new ObjRelation("OwnedBy"), objId),
         ]);
         var options = new SealedFgaQueryOptions {
             ContextualTuples = [
-                SealedFgaContextualTuple.Of(user, new ParentRelation("Member"), TestParentId.Parse(parent)),
+                SealedFgaContextualTuple.Of(user, new ParentRelation("Member"), parentId),
             ],
         };
 
-        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), TestObjectId.Parse(obj)))
+        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), objId))
             .ShouldBeFalse(); // no stored membership
-        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), TestObjectId.Parse(obj), options))
+        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), objId, options))
             .ShouldBeTrue(); // contextual membership activates the computed arm
-        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), TestObjectId.Parse(obj)))
+        (await fga.Service.CheckAsync(user, new ObjRelation("can_edit"), objId))
             .ShouldBeFalse(); // nothing was stored by the contextual call
     }
 
@@ -229,9 +229,7 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         var obj = GuidOf("consistency");
         var user = new TestUserId("ctx-karl");
         var canView = new ObjRelation("can_view");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = user.AsOpenFgaIdTupleString(), Relation = "can_view", Object = $"testobject:{obj}" },
-        ]);
+        await fga.Service.WriteAsync(user, canView, TestObjectId.Parse(obj));
         var options = new SealedFgaQueryOptions {
             Consistency = ConsistencyPreference.HIGHERCONSISTENCY,
         };
@@ -249,9 +247,11 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     [Fact]
     public async Task ListUsersAsync_returns_concrete_subjects_as_strong_ids() {
         var obj = GuidOf("listusers");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = "testuser:uma", Relation = "can_view", Object = $"testobject:{obj}" },
-            new TupleKey { User = "testuser:victor", Relation = "can_view", Object = $"testobject:{obj}" },
+        var objId = TestObjectId.Parse(obj);
+        var canView = new ObjRelation("can_view");
+        await fga.Service.WriteAsync([
+            SealedFgaTupleOperation.Of(new TestUserId("uma"), canView, objId),
+            SealedFgaTupleOperation.Of(new TestUserId("victor"), canView, objId),
         ]);
 
         var result = await fga.Service.ListUsersAsync<TestObjectId, TestUserId>(
@@ -289,9 +289,7 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
     public async Task ListRelationsAsync_returns_only_the_relations_the_user_holds() {
         var obj = GuidOf("listrelations");
         var user = new TestUserId("xena");
-        await fga.Service.WriteTuplesAsync([
-            new TupleKey { User = user.AsOpenFgaIdTupleString(), Relation = "can_view", Object = $"testobject:{obj}" },
-        ]);
+        await fga.Service.WriteAsync(user, new ObjRelation("can_view"), TestObjectId.Parse(obj));
 
         ISealedFgaRelation<TestObjectId>[] candidates = [new ObjRelation("can_view"), new ObjRelation("can_edit")];
         var held = await fga.Service.ListRelationsAsync(user, candidates, TestObjectId.Parse(obj));
@@ -329,9 +327,7 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         }));
         var obj = GuidOf("defaultconsistency");
         var user = new TestUserId("zoe");
-        await service.WriteTuplesAsync([
-            new TupleKey { User = user.AsOpenFgaIdTupleString(), Relation = "can_view", Object = $"testobject:{obj}" },
-        ]);
+        await service.WriteAsync(user, new ObjRelation("can_view"), TestObjectId.Parse(obj));
 
         (await service.ListObjectsAsync(user, new ObjRelation("can_view")))
             .ShouldContain(o => o.Value == System.Guid.Parse(obj));

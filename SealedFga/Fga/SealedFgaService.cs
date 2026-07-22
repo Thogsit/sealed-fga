@@ -26,10 +26,18 @@ namespace SealedFga.Fga;
 ///     construction in tests — falls back to a private per-instance cache, which for a scoped
 ///     service means effectively no cross-request caching.
 /// </param>
+/// <param name="ambientOptionsProvider">
+///     Optional ambient options provider (see <see cref="ISealedFgaAmbientOptionsProvider" />).
+///     <c>null</c> (the default, and what the DI container injects when nothing is registered) keeps
+///     the service's behavior byte-identical to a pure per-call-options service — the provider is
+///     never consulted. When present, it is resolved on every concrete-object operation and its
+///     options are merged into the effective per-call options.
+/// </param>
 public class SealedFgaService(
     OpenFgaClient openFgaClient,
     IOptions<SealedFgaOptions> options,
-    SealedFgaAuthModelCache? modelCache = null
+    SealedFgaAuthModelCache? modelCache = null,
+    ISealedFgaAmbientOptionsProvider? ambientOptionsProvider = null
 ) : ISealedFgaService {
     private readonly SealedFgaAuthModelCache _modelCache = modelCache ?? new SealedFgaAuthModelCache();
 
@@ -96,15 +104,44 @@ public class SealedFgaService(
         SealedFgaQueryOptions? queryOptions = null,
         CancellationToken cancellationToken = new()
     )
-        where TObjId : ISealedFgaTypeId<TObjId>
-        => await CheckAsync(new TupleKey {
+        where TObjId : ISealedFgaTypeId<TObjId> {
+        var effectiveOptions =
+            await ResolveEffectiveOptionsAsync(user, relation, objectId, queryOptions, cancellationToken);
+        return await CheckAsync(new TupleKey {
                 User = user.AsOpenFgaIdTupleString(),
                 Relation = relation.AsOpenFgaString(),
                 Object = objectId.AsOpenFgaIdTupleString(),
             },
-            queryOptions,
+            effectiveOptions,
             cancellationToken
         );
+    }
+
+    /// <summary>
+    ///     Merges any ambient options (from <see cref="ISealedFgaAmbientOptionsProvider" />) for one
+    ///     concrete-object operation into the explicit per-call options. Fast path: when no provider is
+    ///     registered, returns <paramref name="queryOptions" /> unchanged with zero extra work.
+    /// </summary>
+    private async ValueTask<SealedFgaQueryOptions?> ResolveEffectiveOptionsAsync<TObjId>(
+        ISealedFgaUser user,
+        ISealedFgaRelation<TObjId> relation,
+        TObjId objectId,
+        SealedFgaQueryOptions? queryOptions,
+        CancellationToken cancellationToken
+    )
+        where TObjId : ISealedFgaTypeId<TObjId> {
+        if (ambientOptionsProvider is null) {
+            return queryOptions;
+        }
+
+        var ambient = await ambientOptionsProvider.GetCheckOptionsAsync(
+            user,
+            relation,
+            objectId,
+            cancellationToken
+        );
+        return SealedFgaQueryOptions.Merge(ambient, queryOptions);
+    }
 
     /// <inheritdoc />
     public async Task<IEnumerable<TObjId>> ListObjectsAsync<TObjId>(
@@ -176,6 +213,12 @@ public class SealedFgaService(
             return [];
         }
 
+        // The single object is shared across every candidate relation, so the ambient provider is
+        // consulted once (with the first relation as the representative) and the merged options apply
+        // to all of them.
+        var effectiveOptions =
+            await ResolveEffectiveOptionsAsync(user, relationList[0], objectId, queryOptions, cancellationToken);
+
         var rawUser = user.AsOpenFgaIdTupleString();
         var rawObject = objectId.AsOpenFgaIdTupleString();
         var tupleKeys = relationList.Select(relation => new TupleKey {
@@ -186,11 +229,11 @@ public class SealedFgaService(
         ).ToList();
 
         // Shared contextual tuples for every relation; list ops honor DefaultListConsistency.
-        var contextualTuples = queryOptions?.ToContextualTupleKeys();
+        var contextualTuples = effectiveOptions?.ToContextualTupleKeys();
         var results = (await BatchCheckCoreAsync(
             tupleKeys,
             _ => contextualTuples,
-            ResolveListConsistency(queryOptions),
+            ResolveListConsistency(effectiveOptions),
             cancellationToken
         )).ToList();
 
@@ -206,10 +249,31 @@ public class SealedFgaService(
         )
         where TObjId : ISealedFgaTypeId<TObjId> {
         var checksAsList = checks.ToList();
-        var contextualTuples = queryOptions?.ToContextualTupleKeys();
+
+        // Fast path: no ambient provider → one shared tuple set, allocation-free, byte-identical to before.
+        if (ambientOptionsProvider is null) {
+            var contextualTuples = queryOptions?.ToContextualTupleKeys();
+            var fastResults = (await BatchCheckCoreAsync(
+                ToBatchTupleKeys(checksAsList),
+                _ => contextualTuples,
+                queryOptions?.Consistency,
+                cancellationToken
+            )).ToList();
+
+            return MapResultsByCheck(checksAsList, fastResults);
+        }
+
+        // With a provider, resolve ambient options per item (each item has its own object) and union
+        // them into that item's contextual tuples. Batch consistency stays the explicit per-call value:
+        // a batch carries a single whole-request consistency, so a per-item ambient one cannot apply.
+        var perItemTuples = await ResolveAmbientBatchTuplesAsync(
+            checksAsList,
+            _ => queryOptions?.ContextualTuples,
+            cancellationToken
+        );
         var results = (await BatchCheckCoreAsync(
             ToBatchTupleKeys(checksAsList),
-            _ => contextualTuples,
+            index => perItemTuples[index],
             queryOptions?.Consistency,
             cancellationToken
         )).ToList();
@@ -230,14 +294,77 @@ public class SealedFgaService(
         ArgumentNullException.ThrowIfNull(contextualTuplesFactory);
 
         var checksAsList = checks.ToList();
+
+        // Fast path: no ambient provider → the factory's per-item tuples are used verbatim.
+        if (ambientOptionsProvider is null) {
+            var fastResults = (await BatchCheckCoreAsync(
+                ToBatchTupleKeys(checksAsList),
+                index => SealedFgaContextualTuple.ToContextualTupleKeys(contextualTuplesFactory(checksAsList[index])),
+                consistency,
+                cancellationToken
+            )).ToList();
+
+            return MapResultsByCheck(checksAsList, fastResults);
+        }
+
+        // With a provider, union the ambient per-item tuples with the factory's per-item tuples.
+        var perItemTuples = await ResolveAmbientBatchTuplesAsync(
+            checksAsList,
+            check => contextualTuplesFactory(check),
+            cancellationToken
+        );
         var results = (await BatchCheckCoreAsync(
             ToBatchTupleKeys(checksAsList),
-            index => SealedFgaContextualTuple.ToContextualTupleKeys(contextualTuplesFactory(checksAsList[index])),
+            index => perItemTuples[index],
             consistency,
             cancellationToken
         )).ToList();
 
         return MapResultsByCheck(checksAsList, results);
+    }
+
+    /// <summary>
+    ///     Resolves the ambient provider once per batch item and unions its contextual tuples with the
+    ///     item's own tuples (from <paramref name="perItemTuples" />), returning the ready-to-send SDK
+    ///     shape per index. Only called when <see cref="ambientOptionsProvider" /> is non-null.
+    /// </summary>
+    private async Task<ContextualTupleKeys?[]> ResolveAmbientBatchTuplesAsync<TObjId>(
+        List<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)> checks,
+        Func<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object),
+            IReadOnlyCollection<SealedFgaContextualTuple>?> perItemTuples,
+        CancellationToken cancellationToken
+    )
+        where TObjId : ISealedFgaTypeId<TObjId> {
+        var resolved = new ContextualTupleKeys?[checks.Count];
+        for (var i = 0; i < checks.Count; i++) {
+            var check = checks[i];
+            var ambient = await ambientOptionsProvider!.GetCheckOptionsAsync(
+                check.User,
+                check.Relation,
+                check.Object,
+                cancellationToken
+            );
+            var merged = UnionContextualTuples(ambient?.ContextualTuples, perItemTuples(check));
+            resolved[i] = SealedFgaContextualTuple.ToContextualTupleKeys(merged);
+        }
+
+        return resolved;
+    }
+
+    /// <summary>Unions two contextual-tuple sets, treating null/empty as "nothing"; returns null when both are empty.</summary>
+    private static IReadOnlyCollection<SealedFgaContextualTuple>? UnionContextualTuples(
+        IReadOnlyCollection<SealedFgaContextualTuple>? first,
+        IReadOnlyCollection<SealedFgaContextualTuple>? second
+    ) {
+        if (first is not { Count: > 0 }) {
+            return second;
+        }
+
+        if (second is not { Count: > 0 }) {
+            return first;
+        }
+
+        return first.Concat(second).ToList();
     }
 
     /// <summary>Projects typed checks to raw batch tuple keys, preserving order.</summary>
@@ -590,22 +717,91 @@ public class SealedFgaService(
     #region Write/Delete Methods
 
     /// <inheritdoc />
-    public async Task WriteTuplesAsync(
+    public Task WriteAsync<TObjId>(
+        ISealedFgaUser user,
+        ISealedFgaRelation<TObjId> relation,
+        TObjId objectId,
+        CancellationToken ct = new()
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>
+        => WriteAsync([SealedFgaTupleOperation.Of(user, relation, objectId)], ct);
+
+    /// <inheritdoc />
+    public Task DeleteAsync<TObjId>(
+        ISealedFgaUser user,
+        ISealedFgaRelation<TObjId> relation,
+        TObjId objectId,
+        CancellationToken ct = new()
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>
+        => DeleteAsync([SealedFgaTupleOperation.Of(user, relation, objectId)], ct);
+
+    /// <inheritdoc />
+    public Task WriteAsync(IReadOnlyCollection<SealedFgaTupleOperation> writes, CancellationToken ct = new())
+        => ApplyTuplesAsync(ToTupleKeys(writes), [], ct);
+
+    /// <inheritdoc />
+    public Task DeleteAsync(IReadOnlyCollection<SealedFgaTupleOperation> deletes, CancellationToken ct = new())
+        => ApplyTuplesAsync([], ToTupleKeys(deletes), ct);
+
+    /// <inheritdoc />
+    public Task ApplyAsync(
+        IReadOnlyCollection<SealedFgaTupleOperation> writes,
+        IReadOnlyCollection<SealedFgaTupleOperation> deletes,
+        CancellationToken ct = new()
+    )
+        => ApplyTuplesAsync(ToTupleKeys(writes), ToTupleKeys(deletes), ct);
+
+    /// <summary>
+    ///     Writes a list of raw tuples to OpenFGA. Idempotent server-side: tuples that already exist
+    ///     are ignored (<c>OnDuplicateWrites = Ignore</c>) rather than failing the request, and —
+    ///     unlike a check-then-write — a stored tuple is <b>always</b> materialized even when a
+    ///     computed relation (e.g. a union arm) already grants the same access.
+    ///     <para>
+    ///         Internal: consumers build tuples via the typed <see cref="WriteAsync{TObjId}" /> /
+    ///         <see cref="WriteAsync(IReadOnlyCollection{SealedFgaTupleOperation},CancellationToken)" />
+    ///         overloads instead of raw <see cref="TupleKey" />s.
+    ///     </para>
+    /// </summary>
+    /// <param name="tuples">The list of tuples to write</param>
+    /// <param name="ct">The cancellation token to cancel the operation if needed</param>
+    internal Task WriteTuplesAsync(
         List<TupleKey> tuples,
         CancellationToken ct = new()
-    ) {
-        var failures = await WriteAndDeleteTuplesWithOutcomesAsync(tuples, [], ct);
+    )
+        => ApplyTuplesAsync(tuples, [], ct);
+
+    /// <summary>
+    ///     Deletes a list of raw tuples from OpenFGA. Idempotent server-side: tuples that are not
+    ///     stored are ignored (<c>OnMissingDeletes = Ignore</c>) rather than failing the request,
+    ///     so deleting a never-stored tuple is a no-op.
+    ///     <para>
+    ///         Internal: consumers build tuples via the typed <see cref="DeleteAsync{TObjId}" /> /
+    ///         <see cref="DeleteAsync(IReadOnlyCollection{SealedFgaTupleOperation},CancellationToken)" />
+    ///         overloads instead of raw <see cref="TupleKey" />s.
+    ///     </para>
+    /// </summary>
+    /// <param name="tuples">The list of tuples to delete</param>
+    /// <param name="ct">The cancellation token to cancel the operation if needed</param>
+    internal Task DeleteTuplesAsync(List<TupleKey> tuples, CancellationToken ct = new())
+        => ApplyTuplesAsync([], tuples, ct);
+
+    /// <summary>
+    ///     Applies writes and deletes in one OpenFGA request, converting any non-empty failure list
+    ///     into an <see cref="FgaWriteException" /> — the shared throwing wrapper behind every public
+    ///     write/delete overload and the internal raw path.
+    /// </summary>
+    private async Task ApplyTuplesAsync(List<TupleKey> writeTuples, List<TupleKey> deleteTuples, CancellationToken ct) {
+        var failures = await WriteAndDeleteTuplesWithOutcomesAsync(writeTuples, deleteTuples, ct);
         if (failures.Count > 0) {
             throw new FgaWriteException(failures);
         }
     }
 
-    /// <inheritdoc />
-    public async Task DeleteTuplesAsync(List<TupleKey> tuples, CancellationToken ct = new()) {
-        var failures = await WriteAndDeleteTuplesWithOutcomesAsync([], tuples, ct);
-        if (failures.Count > 0) {
-            throw new FgaWriteException(failures);
-        }
+    /// <summary>Projects typed tuple operations to raw <see cref="TupleKey" />s, rejecting default-constructed entries.</summary>
+    private static List<TupleKey> ToTupleKeys(IReadOnlyCollection<SealedFgaTupleOperation> operations) {
+        ArgumentNullException.ThrowIfNull(operations);
+        return operations.Select(op => op.ToTupleKey()).ToList();
     }
 
     /// <summary>

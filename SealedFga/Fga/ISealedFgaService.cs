@@ -182,26 +182,78 @@ public interface ISealedFgaService {
         where TObjId : ISealedFgaTypeId<TObjId>;
 
     /// <summary>
-    ///     Writes a list of tuples to OpenFGA. Idempotent server-side: tuples that already exist
-    ///     are ignored (<c>OnDuplicateWrites = Ignore</c>) rather than failing the request, and —
-    ///     unlike a check-then-write — a stored tuple is <b>always</b> materialized even when a
-    ///     computed relation (e.g. a union arm) already grants the same access.
+    ///     Writes one strongly-typed tuple to OpenFGA. Idempotent server-side: an already-stored
+    ///     tuple is ignored (<c>OnDuplicateWrites = Ignore</c>) rather than failing, and — unlike a
+    ///     check-then-write — the tuple is <b>always</b> materialized even when a computed relation
+    ///     (e.g. a union arm) already grants the same access. Thin wrapper over
+    ///     <see cref="WriteAsync(IReadOnlyCollection{SealedFgaTupleOperation},CancellationToken)" />.
     /// </summary>
-    /// <param name="tuples">The list of tuples to write</param>
-    /// <param name="ct">The cancellation token to cancel the operation if needed</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    Task WriteTuplesAsync(
-        List<TupleKey> tuples,
+    /// <param name="user">The tuple's user/subject (strongly typed)</param>
+    /// <param name="relation">The relation (bound to the object type)</param>
+    /// <param name="objectId">The object ID (strongly typed)</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <typeparam name="TObjId">The object ID type</typeparam>
+    /// <exception cref="FgaWriteException">Thrown when the write fails.</exception>
+    Task WriteAsync<TObjId>(
+        ISealedFgaUser user,
+        ISealedFgaRelation<TObjId> relation,
+        TObjId objectId,
         CancellationToken ct = new()
-    );
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>;
 
     /// <summary>
-    ///     Deletes a list of tuples from OpenFGA. Idempotent server-side: tuples that are not
-    ///     stored are ignored (<c>OnMissingDeletes = Ignore</c>) rather than failing the request,
-    ///     so deleting a never-stored tuple is a no-op.
+    ///     Deletes one strongly-typed tuple from OpenFGA. Idempotent server-side: deleting a
+    ///     never-stored tuple is a no-op (<c>OnMissingDeletes = Ignore</c>), not an error. Thin
+    ///     wrapper over
+    ///     <see cref="DeleteAsync(IReadOnlyCollection{SealedFgaTupleOperation},CancellationToken)" />.
     /// </summary>
-    /// <param name="tuples">The list of tuples to delete</param>
-    /// <param name="ct">The cancellation token to cancel the operation if needed</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    Task DeleteTuplesAsync(List<TupleKey> tuples, CancellationToken ct = new());
+    /// <param name="user">The tuple's user/subject (strongly typed)</param>
+    /// <param name="relation">The relation (bound to the object type)</param>
+    /// <param name="objectId">The object ID (strongly typed)</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <typeparam name="TObjId">The object ID type</typeparam>
+    /// <exception cref="FgaWriteException">Thrown when the delete fails.</exception>
+    Task DeleteAsync<TObjId>(
+        ISealedFgaUser user,
+        ISealedFgaRelation<TObjId> relation,
+        TObjId objectId,
+        CancellationToken ct = new()
+    )
+        where TObjId : ISealedFgaTypeId<TObjId>;
+
+    /// <summary>
+    ///     Writes a batch of strongly-typed tuples to OpenFGA in one request. Build the operations via
+    ///     <see cref="SealedFgaTupleOperation.Of{TObjId}" />. Idempotent (<c>OnDuplicateWrites = Ignore</c>);
+    ///     the same shared write currency as the outbox enqueue API.
+    /// </summary>
+    /// <param name="writes">The tuples to write.</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <exception cref="FgaWriteException">Thrown when any tuple fails to write.</exception>
+    Task WriteAsync(IReadOnlyCollection<SealedFgaTupleOperation> writes, CancellationToken ct = new());
+
+    /// <summary>
+    ///     Deletes a batch of strongly-typed tuples from OpenFGA in one request. Build the operations
+    ///     via <see cref="SealedFgaTupleOperation.Of{TObjId}" />. Idempotent (<c>OnMissingDeletes = Ignore</c>).
+    /// </summary>
+    /// <param name="deletes">The tuples to delete.</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <exception cref="FgaWriteException">Thrown when any tuple fails to delete.</exception>
+    Task DeleteAsync(IReadOnlyCollection<SealedFgaTupleOperation> deletes, CancellationToken ct = new());
+
+    /// <summary>
+    ///     Applies writes and deletes as a single OpenFGA write request — the immediate-write mirror of
+    ///     the outbox drainer's combined apply. Deletes and writes are sent together; ignore semantics
+    ///     make the operation idempotent. Build the operations via
+    ///     <see cref="SealedFgaTupleOperation.Of{TObjId}" />.
+    /// </summary>
+    /// <param name="writes">The tuples that must exist.</param>
+    /// <param name="deletes">The tuples that must not exist.</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <exception cref="FgaWriteException">Thrown when any tuple fails to apply.</exception>
+    Task ApplyAsync(
+        IReadOnlyCollection<SealedFgaTupleOperation> writes,
+        IReadOnlyCollection<SealedFgaTupleOperation> deletes,
+        CancellationToken ct = new()
+    );
 }

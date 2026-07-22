@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using OpenFga.Sdk.Client.Model;
 using SealedFga.AuthModel;
+using SealedFga.Fga;
 using SealedFga.Fga.Outbox;
 using SealedFga.Tests.Support;
 using Shouldly;
