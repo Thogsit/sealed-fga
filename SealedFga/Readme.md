@@ -70,8 +70,9 @@ uninitialized IDs flow into tuples or queries.
 
 ## 3. Mark your entities
 
-Two annotation shapes are supported; everything else (usersets, collection navigations, computed
-grants) goes through the typed enqueue API instead of an annotation.
+Three declaration shapes are supported: two attribute annotations for tuples that mirror FK
+values, and `ISealedFgaTupleSource` for entities whose whole tuple set is derivable from the row.
+Everything else (cross-row computations, bulk fan-outs) goes through the typed enqueue API.
 
 **Scalar FK** — `[SealedFgaRelation]` on a strong-ID FK property of an `ISealedFgaType<TId>`
 entity. The tuple links the FK value and the entity's own `Id`; `TargetType` orients it
@@ -110,6 +111,53 @@ public class WidgetShareEntity {
 // re-point either FK: delete old pair's tuple + write new pair's
 // delete: delete exactly that tuple (no purge — nothing references the row's own PK)
 ```
+
+**Tuple source** — implement `ISealedFgaTupleSource` when the entity's tuples are a **pure
+function of its row values** and the attribute shapes can't express them: state machines whose
+rows are never hard-deleted, permission sets stored on the row, tuples carrying the row's own id
+on the *user* side. `DesiredTuples()` returns the complete tuple set for the current values; the
+SaveChanges interceptor diffs it across every tracked change and enqueues exactly the difference:
+
+```csharp
+public class ShareGrantEntity : ISealedFgaType<ShareGrantEntityId>, ISealedFgaTupleSource {
+    public ShareGrantEntityId Id { get; set; }
+    public GrantState State { get; set; }
+    public UserEntityId RecipientId { get; set; }
+    public WidgetEntityId WidgetId { get; set; }
+    public bool CanEdit { get; set; }
+
+    public IEnumerable<SealedFgaTupleOperation> DesiredTuples() {
+        if (State != GrantState.Active) yield break;   // inactive states: no tuples, row stays
+
+        // The grant itself on the tuple's USER side — both orientations are supported.
+        yield return SealedFgaTupleOperation.Of(Id, WidgetEntityIdGroups.ShareGrant, WidgetId);
+        yield return SealedFgaTupleOperation.Of(RecipientId, WidgetEntityIdPermissions.can_view, WidgetId);
+        if (CanEdit)
+            yield return SealedFgaTupleOperation.Of(RecipientId, WidgetEntityIdPermissions.can_edit, WidgetId);
+    }
+}
+// add:      write DesiredTuples(new row)
+// modify:   diff DesiredTuples(original values) vs DesiredTuples(current) -> write/delete the difference
+// delete:   delete DesiredTuples(original values) — NO purge fence (see below)
+```
+
+Rules and semantics:
+
+- **Purity.** `DesiredTuples()` must depend only on mapped, non-navigation properties — no DB or
+  service access (static helpers like a permission catalog are fine). The interceptor evaluates
+  the *original* row via a detached instance materialized from EF's original values; impure
+  implementations would diff garbage.
+- **The tuple source owns all of the entity's tuples.** Combining it with `[SealedFgaRelation]` /
+  `[SealedFgaJoinRelation]` on the same entity is rejected (compile-time `SFGA004`, plus a
+  runtime check) — express those tuples in `DesiredTuples()` instead.
+- **No delete purge.** Unlike attribute-annotated `ISealedFgaType` entities, deleting a
+  tuple-source entity enqueues targeted deletes from the diff, not a `DeleteAllForObject` fence:
+  the diff is exhaustive by construction, and desired tuples may reference the row's id on
+  neither side (permission fan-outs), where an id-keyed purge could never reach.
+- ⚠️ **Change-tracker bypasses don't sync.** `ExecuteUpdate` / `ExecuteDelete` / raw SQL never
+  hit the interceptor, so tuple-source rows mutated that way silently diverge from OpenFGA.
+  Mutate them only through tracked entities — and if bypasses (or manual DB edits) can happen in
+  your system, run a periodic reconciliation sweep as a backstop.
 
 In your `DbContext`, register the generated strong-ID value converters (one line — this must run in the
 pre-convention phase, so it goes in `ConfigureConventions`):
@@ -194,8 +242,9 @@ super-user contextual tuple derived from the request), register an
 
 ## 6. Enqueue computed tuple changes (typed outbox API)
 
-For tuple changes no annotation can express — computed grants, cascades, bulk fan-outs —
-enqueue precomputed diffs directly into the same transactional outbox:
+For tuple changes neither an annotation nor a per-row tuple source can express — cross-row
+computations, cascades, bulk fan-outs — enqueue precomputed diffs directly into the same
+transactional outbox:
 
 ```csharp
 // Single operations

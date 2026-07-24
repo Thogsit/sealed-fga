@@ -29,10 +29,13 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
     //   testobject.can_edit : [testuser] or Member from OwnedBy — a UNION relation (like the
     //     sample model's can_view) where direct grants and computed grants coexist; used to prove
     //     writes materialize stored tuples even when a computed arm already grants access.
+    //   testobject.ShareGrant : [testgrant] — a link relation carrying the tuple-source grant
+    //     entity (TestGrantEntity) on the tuple's USER side, for the state-machine round-trip.
     private const string TypeDefinitionsJson =
         """
         [
           { "type": "testuser" },
+          { "type": "testgrant" },
           {
             "type": "testparent",
             "relations": { "Member": { "this": {} } },
@@ -42,6 +45,7 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
             "type": "testobject",
             "relations": {
               "OwnedBy": { "this": {} },
+              "ShareGrant": { "this": {} },
               "can_view": { "this": {} },
               "can_edit": { "union": { "child": [
                 { "this": {} },
@@ -53,6 +57,7 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
             },
             "metadata": { "relations": {
               "OwnedBy":  { "directly_related_user_types": [ { "type": "testparent" } ] },
+              "ShareGrant": { "directly_related_user_types": [ { "type": "testgrant" } ] },
               "can_view": { "directly_related_user_types": [ { "type": "testuser" }, { "type": "testparent", "relation": "Member" } ] },
               "can_edit": { "directly_related_user_types": [ { "type": "testuser" } ] }
             } }
@@ -83,9 +88,11 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
         IdUtil.RegisterIdType(typeof(TestObjectId), TestObjectId.OpenFgaTypeName);
         IdUtil.RegisterIdType(typeof(TestParentId), TestParentId.OpenFgaTypeName);
         IdUtil.RegisterIdType(typeof(TestUserId), TestUserId.OpenFgaTypeName);
+        IdUtil.RegisterIdType(typeof(TestGrantId), TestGrantId.OpenFgaTypeName);
         IdUtil.RegisterIdTypeParseMethod(typeof(TestObjectId), s => TestObjectId.Parse(s));
         IdUtil.RegisterIdTypeParseMethod(typeof(TestParentId), s => TestParentId.Parse(s));
         IdUtil.RegisterIdTypeParseMethod(typeof(TestUserId), s => TestUserId.Parse(s));
+        IdUtil.RegisterIdTypeParseMethod(typeof(TestGrantId), s => TestGrantId.Parse(s));
 
         var bootstrap = new OpenFgaClient(new ClientConfiguration { ApiUrl = ApiUrl });
         var store = await bootstrap.CreateStore(new ClientCreateStoreRequest { Name = "sealedfga-tests" });

@@ -20,10 +20,11 @@ readme: [SealedFga/Readme.md](./SealedFga/Readme.md).**
    (`readonly record struct`s with EF/JSON/MVC converters) and compile-checked relation
    constants (`WidgetEntityIdPermissions.can_view`) — a typo'd relation or a tuple linking the
    wrong types is a compile error, not a runtime 403.
-2. **Transactional sync.** Entity annotations (`[SealedFgaRelation]`, `[SealedFgaJoinRelation]`)
-   and a typed enqueue API write tuple changes into a database outbox inside **your**
-   transaction; a leased background drainer applies them to OpenFGA — at-least-once,
-   server-side idempotent, newest-wins per tuple key, batched.
+2. **Transactional sync.** Entity annotations (`[SealedFgaRelation]`, `[SealedFgaJoinRelation]`),
+   declarative per-row tuple sources (`ISealedFgaTupleSource` — desired tuples as a pure function
+   of the row, diffed on every tracked change) and a typed enqueue API write tuple changes into a
+   database outbox inside **your** transaction; a leased background drainer applies them to
+   OpenFGA — at-least-once, server-side idempotent, newest-wins per tuple key, batched.
 3. **Declarative endpoint authorization.** `[FgaAuthorize]` binds a route ID to a loaded,
    authorization-checked entity; `[FgaAuthorizeList]` hands your action an unmaterialized,
    authorization-filtered `IQueryable<T>` that still translates to SQL.

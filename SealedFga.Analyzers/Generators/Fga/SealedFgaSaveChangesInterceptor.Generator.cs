@@ -10,7 +10,8 @@ internal static class SealedFgaSaveChangesInterceptorGenerator {
             """
             /// <summary>
             ///     EF Core <see cref="SaveChangesInterceptor" /> that translates tracked entity changes
-            ///     into SealedFGA outbox entries in the same transaction (via
+            ///     — relation attributes and <c>ISealedFgaTupleSource</c> diffs alike — into SealedFGA
+            ///     outbox entries in the same transaction (via
             ///     <see cref="SealedFgaSaveChangesProcessor" />). Registered by
             ///     <c>ConfigureSealedFga</c> and attached via <c>DbContextOptionsBuilder.AddSealedFga</c>.
             /// </summary>

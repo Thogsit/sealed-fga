@@ -15,6 +15,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(
     public DbSet<TestUserEntity> Users => Set<TestUserEntity>();
     public DbSet<TestParentEntity> Parents => Set<TestParentEntity>();
     public DbSet<TestJoinEntity> Joins => Set<TestJoinEntity>();
+    public DbSet<TestGrantEntity> Grants => Set<TestGrantEntity>();
     public DbSet<SealedFgaOutboxEntry> Outbox => Set<SealedFgaOutboxEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
@@ -28,6 +29,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(
         configurationBuilder.Properties<TestObjectId>().HaveConversion<TestObjectId.EfCoreValueConverter>();
         configurationBuilder.Properties<TestParentId>().HaveConversion<TestParentId.EfCoreValueConverter>();
         configurationBuilder.Properties<TestUserId>().HaveConversion<TestUserId.EfCoreValueConverter>();
+        configurationBuilder.Properties<TestGrantId>().HaveConversion<TestGrantId.EfCoreValueConverter>();
     }
 
     /// <summary>

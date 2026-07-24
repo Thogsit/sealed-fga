@@ -18,11 +18,15 @@ namespace SealedFga.Fga;
 ///     inserted in the <b>same transaction</b> as the entity changes — nothing reaches OpenFGA unless
 ///     that transaction commits. The rows are later applied to OpenFGA by <see cref="Outbox.SealedFgaOutboxDrainer" />.
 ///     <para>
-///         Two annotation shapes feed this processor (see the attributes' docs for the exact
+///         Three declaration shapes feed this processor (see the members' docs for the exact
 ///         semantics): scalar FK properties via <see cref="SealedFgaRelationAttribute" /> (tuple links
-///         the FK value and the entity's own Id) and join entities via the class-level
+///         the FK value and the entity's own Id), join entities via the class-level
 ///         <see cref="SealedFgaJoinRelationAttribute" /> (tuple links two FK properties; the row's own
-///         key appears in no tuple).
+///         key appears in no tuple), and declarative tuple sources via
+///         <see cref="ISealedFgaTupleSource" /> (desired tuples are a pure function of the row; the
+///         processor diffs that function across every tracked change). A tuple source owns all of its
+///         entity's tuples and cannot be combined with the two attribute shapes (SFGA004; also
+///         enforced here at sync-plan build).
 ///     </para>
 ///     <para>
 ///         The generated interceptor lives in the consumer's compilation (it is emitted source);
@@ -80,6 +84,15 @@ public class SealedFgaSaveChangesProcessor {
     ) {
         var plan = GetSyncPlan(entry.Entity.GetType());
 
+        // Tuple-source entities are handled exclusively by the desired-tuples diff: the diff is
+        // exhaustive by construction, so neither the attribute paths nor the delete purge fence
+        // below apply (desired tuples may not reference the row's own id on either side — e.g.
+        // permission fan-outs — which an id-keyed fence could never clean up).
+        if (plan.IsTupleSource) {
+            ProcessTupleSourceEntity(entry, outboxEntries);
+            return;
+        }
+
         if (entry.State == EntityState.Deleted) {
             ProcessDeletedEntity(entry, plan, outboxEntries);
             return;
@@ -102,6 +115,53 @@ public class SealedFgaSaveChangesProcessor {
         foreach (var join in plan.JoinRelations) {
             ProcessJoinRelation(entry, join, outboxEntries);
         }
+    }
+
+    /// <summary>
+    ///     Handles an <see cref="ISealedFgaTupleSource" /> entity: evaluates the desired tuple set for
+    ///     the original row values (materialized as a detached instance — sound because of the
+    ///     interface's purity contract) and for the current values, then enqueues the set difference.
+    ///     Added rows have no original set; deleted rows have no current set; the row's survival is
+    ///     irrelevant beyond that — which is exactly what lets never-hard-deleted state machines drive
+    ///     their tuples through row updates alone.
+    /// </summary>
+    private static void ProcessTupleSourceEntity(
+        EntityEntry entry,
+        List<SealedFgaOutboxEntry> outboxEntries
+    ) {
+        HashSet<SealedFgaTupleOperation> current = entry.State is EntityState.Added or EntityState.Modified
+            ? DesiredTupleSetOf((ISealedFgaTupleSource) entry.Entity)
+            : [];
+        HashSet<SealedFgaTupleOperation> original = entry.State is EntityState.Modified or EntityState.Deleted
+            ? DesiredTupleSetOf((ISealedFgaTupleSource) entry.OriginalValues.ToObject())
+            : [];
+
+        foreach (var op in original) {
+            if (!current.Contains(op)) {
+                outboxEntries.Add(SealedFgaOutboxEntry.ForDelete(op.User, op.Relation, op.Object));
+            }
+        }
+
+        foreach (var op in current) {
+            if (!original.Contains(op)) {
+                outboxEntries.Add(SealedFgaOutboxEntry.ForWrite(op.User, op.Relation, op.Object));
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Evaluates <see cref="ISealedFgaTupleSource.DesiredTuples" /> into a set (duplicates are
+    ///     tolerated and collapse). Default-constructed operations throw loudly here rather than
+    ///     producing a malformed outbox row.
+    /// </summary>
+    private static HashSet<SealedFgaTupleOperation> DesiredTupleSetOf(ISealedFgaTupleSource source) {
+        var set = new HashSet<SealedFgaTupleOperation>();
+        foreach (var op in source.DesiredTuples()) {
+            op.EnsureNotDefault();
+            set.Add(op);
+        }
+
+        return set;
     }
 
     /// <summary>
@@ -354,12 +414,24 @@ public class SealedFgaSaveChangesProcessor {
                              .GetInterfaces()
                              .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISealedFgaType<>));
 
+        var isTupleSource = typeof(ISealedFgaTupleSource).IsAssignableFrom(entityType);
+
         var scalarRelations = entityType
                              .GetProperties()
                              .Select(prop => (Attr: prop.GetCustomAttribute<SealedFgaRelationAttribute>(), prop.Name))
                              .Where(t => t.Attr is not null)
                              .Select(t => (t.Attr!, t.Name))
                              .ToList();
+
+        if (isTupleSource
+            && (scalarRelations.Count > 0 || entityType.GetCustomAttributes<SealedFgaJoinRelationAttribute>().Any())) {
+            // Runtime backstop for the SFGA004 analyzer diagnostic (non-analyzed compilations).
+            throw new InvalidOperationException(
+                $"Entity type '{entityType.Name}' implements ISealedFgaTupleSource and also declares "
+                + "[SealedFgaRelation]/[SealedFgaJoinRelation]. A tuple source owns all of its "
+                + "entity's tuples; emit them from DesiredTuples() and remove the attributes."
+            );
+        }
 
         if (scalarRelations.Count > 0 && !isSealedFgaType) {
             throw new InvalidOperationException(
@@ -379,7 +451,7 @@ public class SealedFgaSaveChangesProcessor {
                             ))
                            .ToList();
 
-        return new EntitySyncPlan(isSealedFgaType, scalarRelations, joinRelations);
+        return new EntitySyncPlan(isSealedFgaType, isTupleSource, scalarRelations, joinRelations);
     }
 
     /// <summary>
@@ -419,10 +491,11 @@ public class SealedFgaSaveChangesProcessor {
     /// <summary>The cached per-entity-type sync metadata.</summary>
     private sealed record EntitySyncPlan(
         bool IsSealedFgaType,
+        bool IsTupleSource,
         List<(SealedFgaRelationAttribute Attr, string PropertyName)> ScalarRelations,
         List<JoinRelationPlan> JoinRelations
     ) {
         /// <summary>Whether SaveChanges on this entity type can affect OpenFGA at all.</summary>
-        public bool IsRelevant => IsSealedFgaType || JoinRelations.Count > 0;
+        public bool IsRelevant => IsSealedFgaType || IsTupleSource || JoinRelations.Count > 0;
     }
 }

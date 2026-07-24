@@ -45,6 +45,22 @@ public readonly record struct TestParentId(Guid Value) : ISealedFgaTypeId<TestPa
         : GuidIdTypeConverter<TestParentId>(g => new TestParentId(g), Parse);
 }
 
+/// <summary>Guid-backed test ID for the tuple-source grant entity (OpenFGA type <c>testgrant</c>).</summary>
+[TypeConverter(typeof(IdTypeConverter))]
+public readonly record struct TestGrantId(Guid Value) : ISealedFgaTypeId<TestGrantId> {
+    public static string OpenFgaTypeName => "testgrant";
+    public static TestGrantId New() => new(Guid.NewGuid());
+    public static TestGrantId Parse(string val) => new(Guid.Parse(val));
+    public string AsOpenFgaIdTupleString() => $"{OpenFgaTypeName}:{ToString()}";
+    public override string ToString() => Value.ToString();
+
+    public sealed class EfCoreValueConverter()
+        : ValueConverter<TestGrantId, Guid>(id => id.Value, val => new TestGrantId(val));
+
+    public sealed class IdTypeConverter()
+        : GuidIdTypeConverter<TestGrantId>(g => new TestGrantId(g), Parse);
+}
+
 /// <summary>String-backed test ID (OpenFGA type <c>testuser</c>).</summary>
 [TypeConverter(typeof(IdTypeConverter))]
 public readonly record struct TestUserId(string Value) : ISealedFgaTypeId<TestUserId> {

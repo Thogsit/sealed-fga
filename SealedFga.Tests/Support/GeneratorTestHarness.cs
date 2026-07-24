@@ -51,17 +51,24 @@ public static class GeneratorTestHarness {
                  .Distinct()
                  .ToList();
 
-    private static GeneratorDriver BuildDriver(
-        string source,
-        IReadOnlyDictionary<string, string>? buildProperties,
-        params (string path, string content)[] models
-    ) {
-        var compilation = CSharpCompilation.Create(
+    /// <summary>
+    ///     Builds the standard in-memory test compilation (current-domain references plus the SealedFga
+    ///     runtime assembly) over one source text — shared by the generator driver and the analyzer tests.
+    /// </summary>
+    public static CSharpCompilation CreateCompilation(string source)
+        => CSharpCompilation.Create(
             "SealedFga.GeneratorInput",
             [CSharpSyntaxTree.ParseText(source)],
             References,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
+
+    private static GeneratorDriver BuildDriver(
+        string source,
+        IReadOnlyDictionary<string, string>? buildProperties,
+        params (string path, string content)[] models
+    ) {
+        var compilation = CreateCompilation(source);
 
         return CSharpGeneratorDriver.Create(
             [new SealedFgaSourceGenerator().AsSourceGenerator()],

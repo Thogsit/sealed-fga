@@ -17,4 +17,23 @@ internal static class Settings {
     ///     generator (netstandard2.0) cannot reference the net10.0 runtime assembly.
     /// </summary>
     public const string SealedFgaTypeIdAttributeMetadataName = AttributesNamespace + ".SealedFgaTypeIdAttribute";
+
+    /// <summary>
+    ///     Fully qualified metadata name of the runtime library's <c>ISealedFgaTupleSource</c>
+    ///     interface (<c>SealedFga/AuthModel/ISealedFgaTupleSource.cs</c>), by name for the same
+    ///     reason as above.
+    /// </summary>
+    public const string SealedFgaTupleSourceInterfaceMetadataName = AuthModelNamespace + ".ISealedFgaTupleSource";
+
+    /// <summary>
+    ///     Fully qualified metadata name of the runtime library's <c>[SealedFgaRelation]</c> attribute
+    ///     (<c>SealedFga/Attributes/SealedFgaRelationAttribute.cs</c>).
+    /// </summary>
+    public const string SealedFgaRelationAttributeMetadataName = AttributesNamespace + ".SealedFgaRelationAttribute";
+
+    /// <summary>
+    ///     Fully qualified metadata name of the runtime library's <c>[SealedFgaJoinRelation]</c>
+    ///     attribute (<c>SealedFga/Attributes/SealedFgaJoinRelationAttribute.cs</c>).
+    /// </summary>
+    public const string SealedFgaJoinRelationAttributeMetadataName = AttributesNamespace + ".SealedFgaJoinRelationAttribute";
 }

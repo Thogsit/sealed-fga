@@ -253,6 +253,32 @@ public class GeneratorTests {
     }
 
     [Fact]
+    public Task Tuple_source_entity_generates_like_any_other() {
+        // An ISealedFgaTupleSource entity feeds the runtime interceptor only — the generator must
+        // treat it exactly like any other ISealedFgaType entity (id partial, relations, init,
+        // dispatch, interceptor; no extra or missing files) and report no diagnostics.
+        const string source =
+            """
+            using System.Collections.Generic;
+            using SealedFga.Attributes;
+            using SealedFga.AuthModel;
+            using SealedFga.Fga;
+            using SealedFga.Models;
+            namespace TestApp;
+
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public readonly partial record struct SecretEntityId;
+
+            public class SecretGrantEntity : ISealedFgaType<SecretEntityId>, ISealedFgaTupleSource {
+                public SecretEntityId Id { get; set; }
+                public bool Active { get; set; }
+                public IEnumerable<SealedFgaTupleOperation> DesiredTuples() => [];
+            }
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
     public Task Entity_without_navigations_emits_no_includes_file() {
         // UserEntity has only its Id and an FK id property, both of which are relationship keys rather than
         // navigations, so no UserEntityIncludes file should be emitted.
