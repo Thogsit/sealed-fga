@@ -245,6 +245,15 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
 
         var generatedSealedFgaFile = SealedFgaInitGenerator.Generate(fgaRelatedChanges.idClasses);
         context.AddSource(generatedSealedFgaFile.FileName, generatedSealedFgaFile.BuildFullFileContent());
+
+        // Generated dispatcher mapping OpenFGA type name -> strongly-typed check (replaces a
+        // hand-maintained per-type switch at the call site; covers every [SealedFgaTypeId]).
+        var dispatchFile = SealedFgaCheckDispatchGenerator.Generate(
+            modelFileChange.AuthorizationModel,
+            fgaRelatedChanges.idClasses,
+            splitRelationClasses
+        );
+        context.AddSource(dispatchFile.FileName, dispatchFile.BuildFullFileContent());
     }
 
     private static void AddGeneratedFilesForFgaType(

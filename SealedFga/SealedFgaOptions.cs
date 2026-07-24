@@ -33,8 +33,29 @@ public class SealedFgaOptions {
     ///     hosted service periodically applies queued relation changes to OpenFGA. Set to <c>false</c>
     ///     to disable it and drive <c>SealedFgaOutboxDrainer</c> yourself (e.g. in tests or a separate
     ///     worker process).
+    ///     <para>
+    ///         This toggles <b>only</b> the drainer. It does not change how
+    ///         <see cref="Fga.ISealedFgaService" />'s <c>WriteAsync</c>/<c>DeleteAsync</c> behave —
+    ///         those always apply to OpenFGA immediately. Transaction-coupled tuple changes go through
+    ///         the outbox via the annotation interceptor and the <c>DbContext.EnqueueFga*</c>
+    ///         extensions, independently of this flag.
+    ///     </para>
     /// </summary>
-    public bool QueueFgaServiceOperations { get; set; } = true;
+    public bool RunOutboxDrainer { get; set; } = true;
+
+    /// <summary>
+    ///     Deprecated alias for <see cref="RunOutboxDrainer" />. The old name wrongly implied it made
+    ///     service writes queue; it has only ever toggled the background drainer. Kept for source
+    ///     compatibility.
+    /// </summary>
+    [Obsolete(
+        "Renamed to " + nameof(RunOutboxDrainer)
+        + "; this flag only toggles the outbox drainer, it does not make WriteAsync/DeleteAsync queue."
+    )]
+    public bool QueueFgaServiceOperations {
+        get => RunOutboxDrainer;
+        set => RunOutboxDrainer = value;
+    }
 
     /// <summary>How long the drainer waits between polls when the outbox is empty.</summary>
     public TimeSpan OutboxPollInterval { get; set; } = TimeSpan.FromSeconds(5);

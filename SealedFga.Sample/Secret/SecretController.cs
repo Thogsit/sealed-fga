@@ -2,6 +2,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SealedFga; // generated SealedFgaCheckDispatch.TryCheckByTypeNameAsync extension
 using SealedFga.Attributes;
 using SealedFga.Fga;
 using SealedFga.Sample.Database;
@@ -109,5 +110,27 @@ public class SecretController(
     ) {
         await fga.DeleteAsync(userId, SecretEntityIdPermissions.can_view, secretId);
         return Ok(secret);
+    }
+
+    /// <summary>
+    ///     Demonstrates the generated string-keyed dispatcher
+    ///     (<c>SealedFgaCheckDispatch.TryCheckByTypeNameAsync</c>): checks an arbitrary
+    ///     <c>(typeName, relation, objectId)</c> for a user without a hand-maintained per-type switch.
+    ///     Returns 400 for a type name that is not a registered <c>[SealedFgaTypeId]</c>.
+    /// </summary>
+    [HttpGet("check/{userId}/{typeName}/{relation}/{objectId}")]
+    public async Task<IActionResult> CheckAnyPermission(
+        [FromRoute] UserEntityId userId,
+        [FromRoute] string typeName,
+        [FromRoute] string relation,
+        [FromRoute] string objectId
+    ) {
+        var hasAccess = await fga.TryCheckByTypeNameAsync(userId, typeName, relation, objectId);
+        if (hasAccess is null)
+        {
+            return BadRequest($"Unknown object type '{typeName}'.");
+        }
+
+        return Ok(hasAccess.Value);
     }
 }

@@ -142,6 +142,82 @@ public class GeneratorTests {
     }
 
     [Fact]
+    public Task Check_dispatch_covers_each_checkable_type() {
+        // secret has both can_view (Permissions) and OwnedBy (Groups) -> dispatches via *Permissions;
+        // agency has only Member (Groups) -> dispatches via *Groups; user has no relations -> omitted.
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public readonly partial record struct SecretEntityId;
+            [SealedFgaTypeId("agency", SealedFgaTypeIdType.String)]
+            public readonly partial record struct AgencyEntityId;
+            [SealedFgaTypeId("user", SealedFgaTypeIdType.String)]
+            public readonly partial record struct UserEntityId;
+            """;
+        return GeneratorTestHarness.Verify(source, SecretModel);
+    }
+
+    [Fact]
+    public void Check_dispatch_picks_the_emitted_relation_class_and_omits_relationless_types() {
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public readonly partial record struct SecretEntityId;
+            [SealedFgaTypeId("agency", SealedFgaTypeIdType.String)]
+            public readonly partial record struct AgencyEntityId;
+            [SealedFgaTypeId("user", SealedFgaTypeIdType.String)]
+            public readonly partial record struct UserEntityId;
+            """;
+        var result = GeneratorTestHarness.Run(source, SecretModel);
+
+        var dispatch = result.Results.Single().GeneratedSources
+                             .Single(s => s.HintName == "SealedFgaCheckDispatch.g.cs")
+                             .SourceText.ToString();
+
+        // secret has a can_* permission -> *Permissions is the emitted class the dispatcher must use.
+        dispatch.ShouldContain(
+            "\"secret\" => await svc.CheckAsync(user, TestApp.SecretEntityIdPermissions.FromOpenFgaString(relation), TestApp.SecretEntityId.Parse(objectId), queryOptions, cancellationToken),"
+        );
+        // agency has only an uppercase relation -> only *Groups is emitted, so the dispatcher must use it.
+        dispatch.ShouldContain(
+            "\"agency\" => await svc.CheckAsync(user, TestApp.AgencyEntityIdGroups.FromOpenFgaString(relation), TestApp.AgencyEntityId.Parse(objectId), queryOptions, cancellationToken),"
+        );
+        // user has no relations -> not checkable -> no arm (falls through to the null default).
+        dispatch.ShouldNotContain("\"user\" =>");
+    }
+
+    [Fact]
+    public void Check_dispatch_uses_single_relations_class_when_split_disabled() {
+        const string source =
+            """
+            using SealedFga.Attributes;
+            using SealedFga.Models;
+            namespace TestApp;
+            [SealedFgaTypeId("secret", SealedFgaTypeIdType.Guid)]
+            public readonly partial record struct SecretEntityId;
+            """;
+        var result = GeneratorTestHarness.Run(
+            source,
+            SecretModel,
+            new Dictionary<string, string> { ["build_property.SealedFgaSplitRelationClasses"] = "false" }
+        );
+
+        var dispatch = result.Results.Single().GeneratedSources
+                             .Single(s => s.HintName == "SealedFgaCheckDispatch.g.cs")
+                             .SourceText.ToString();
+
+        // With the split off there is one SecretEntityIdRelations class, so the dispatcher must use it.
+        dispatch.ShouldContain("TestApp.SecretEntityIdRelations.FromOpenFgaString(relation)");
+        dispatch.ShouldNotContain("SecretEntityIdPermissions");
+    }
+
+    [Fact]
     public Task Entity_includes_lists_only_navigation_properties() {
         // SecretEntity mixes a reference nav (OwningAgency), a collection nav (RelatedAgencies), an FK id
         // property (OwningAgencyId), a primitive (Value) and its own Id. Only the two navigations should

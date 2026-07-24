@@ -33,7 +33,7 @@ public class SealedFgaOutboxHostedService<TDbContext>(
         var opts = options.Value;
 
         // Allows consumers to opt out of the built-in drainer (e.g. to drain manually / in tests).
-        if (!opts.QueueFgaServiceOperations) {
+        if (!opts.RunOutboxDrainer) {
             return;
         }
 

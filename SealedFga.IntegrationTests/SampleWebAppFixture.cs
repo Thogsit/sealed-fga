@@ -95,7 +95,7 @@ public sealed class SampleWebAppFixture : IAsyncLifetime {
                         services.RemoveAll<OpenFgaClient>();
                         services.AddSingleton(containerClient);
                         // Drain the outbox deterministically from the test instead of the 5s background poll.
-                        services.Configure<SealedFgaOptions>(o => o.QueueFgaServiceOperations = false);
+                        services.Configure<SealedFgaOptions>(o => o.RunOutboxDrainer = false);
                         // Exercise the binder options hook: grants contextual tuples per request header
                         // (no header -> null -> default binder behavior for all other tests).
                         services.AddSingleton<ISealedFgaBinderOptionsProvider, HeaderContextualTupleProvider>();

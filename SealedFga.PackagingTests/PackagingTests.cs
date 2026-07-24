@@ -28,7 +28,7 @@ public class PackagingTests {
             options.UseInMemoryDatabase(Guid.NewGuid().ToString());
             options.AddSealedFga(sp); // generated: interceptor + outbox model customizer
         });
-        services.ConfigureSealedFga<ConsumerContext>(o => o.QueueFgaServiceOperations = false);
+        services.ConfigureSealedFga<ConsumerContext>(o => o.RunOutboxDrainer = false);
 
         return services.BuildServiceProvider();
     }

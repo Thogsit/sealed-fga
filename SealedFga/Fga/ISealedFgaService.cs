@@ -226,6 +226,12 @@ public interface ISealedFgaService {
     ///     Writes a batch of strongly-typed tuples to OpenFGA in one request. Build the operations via
     ///     <see cref="SealedFgaTupleOperation.Of{TObjId}" />. Idempotent (<c>OnDuplicateWrites = Ignore</c>);
     ///     the same shared write currency as the outbox enqueue API.
+    ///     <para>
+    ///         Applies to OpenFGA <b>immediately and synchronously</b> — it does not enqueue and is not
+    ///         affected by <see cref="SealedFgaOptions.RunOutboxDrainer" />. For a tuple change that must
+    ///         commit atomically with a database transaction, use the <c>DbContext.EnqueueFga*</c>
+    ///         extensions (or a <see cref="Attributes.SealedFgaRelationAttribute" /> on the FK) instead.
+    ///     </para>
     /// </summary>
     /// <param name="writes">The tuples to write.</param>
     /// <param name="ct">Cancellation token</param>
@@ -235,6 +241,12 @@ public interface ISealedFgaService {
     /// <summary>
     ///     Deletes a batch of strongly-typed tuples from OpenFGA in one request. Build the operations
     ///     via <see cref="SealedFgaTupleOperation.Of{TObjId}" />. Idempotent (<c>OnMissingDeletes = Ignore</c>).
+    ///     <para>
+    ///         Applies to OpenFGA <b>immediately and synchronously</b> — it does not enqueue and is not
+    ///         affected by <see cref="SealedFgaOptions.RunOutboxDrainer" />. For a tuple change that must
+    ///         commit atomically with a database transaction, use the <c>DbContext.EnqueueFga*</c>
+    ///         extensions (or a <see cref="Attributes.SealedFgaRelationAttribute" /> on the FK) instead.
+    ///     </para>
     /// </summary>
     /// <param name="deletes">The tuples to delete.</param>
     /// <param name="ct">Cancellation token</param>

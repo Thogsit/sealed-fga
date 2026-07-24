@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <SealedFgaVersion>0.2.2</SealedFgaVersion>
+    <SealedFgaVersion>0.3.0</SealedFgaVersion>
     <MicrosoftCodeAnalysisVersion>4.14.0</MicrosoftCodeAnalysisVersion>
     <OpenFgaSdkVersion>0.10.0</OpenFgaSdkVersion>
     <MicrosoftEntityFrameworkCoreVersion>10.0.10</MicrosoftEntityFrameworkCoreVersion>
