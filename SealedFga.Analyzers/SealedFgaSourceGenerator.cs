@@ -142,11 +142,22 @@ public class SealedFgaSourceGenerator : IIncrementalGenerator {
         // Register per-entity {Entity}Includes code gen
         context.RegisterSourceOutput(entityProvider, GenerateEntityIncludes);
 
-        // Register non-incremental code gen
-        context.RegisterPostInitializationOutput(GenerateNonIncrementalSourceFiles);
+        // Emit the model-independent scaffolding (SealedFgaExtensions / interceptor) only in the
+        // project that actually owns the OpenFGA model. These types are public, so if they were
+        // emitted unconditionally (via post-initialization) they would also be generated in any
+        // project the model owner is ProjectReferenced by — most notably the temporary efbundle
+        // project `dotnet ef migrations bundle` creates — where they collide with the copies already
+        // compiled into the referenced assembly (CS0121 / CS0436). Source generators run from
+        // transitively-referenced packages, so gating on model presence is what keeps them out.
+        var hasModelProvider = modelFgaProvider.Select(static (models, _) => models.Length > 0);
+        context.RegisterSourceOutput(hasModelProvider, GenerateNonIncrementalSourceFiles);
     }
 
-    private static void GenerateNonIncrementalSourceFiles(IncrementalGeneratorPostInitializationContext context) {
+    private static void GenerateNonIncrementalSourceFiles(SourceProductionContext context, bool hasModel) {
+        if (!hasModel) {
+            return;
+        }
+
         var generatedFiles = new List<GeneratedFile>([
                 SealedFgaExtensionsGenerator.Generate(),
                 SealedFgaSaveChangesInterceptorGenerator.Generate(),
