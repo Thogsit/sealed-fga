@@ -57,8 +57,61 @@ public class SealedFgaOptions {
         set => RunOutboxDrainer = value;
     }
 
-    /// <summary>How long the drainer waits between polls when the outbox is empty.</summary>
-    public TimeSpan OutboxPollInterval { get; set; } = TimeSpan.FromSeconds(5);
+    /// <summary>
+    ///     Upper bound on how long the drainer waits between passes when the outbox is empty. A
+    ///     commit that enqueued rows normally wakes it straight away via
+    ///     <see cref="Fga.Outbox.SealedFgaOutboxSignal" />, so this only governs work the signal
+    ///     cannot reach — most importantly rows enqueued by a replica that does not hold the
+    ///     drainer lease.
+    ///     <para>
+    ///         Kept low because that gap is user-visible: a caller that just created an entity fails
+    ///         permission checks until the drainer has applied its tuples. Deployments that wire up
+    ///         cross-replica notification (see <c>SealedFga.Npgsql</c>) can safely raise it again,
+    ///         since the signal then reaches the leader from any replica.
+    ///     </para>
+    /// </summary>
+    public TimeSpan OutboxPollInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    ///     Whether a request is held at the end of its action until the outbox rows it enqueued have
+    ///     been applied to OpenFGA, so a client that immediately reads back what it just created
+    ///     cannot lose the race against the drainer.
+    ///     <para>
+    ///         On by default. Without it, a create endpoint returns while the tuple authorizing the
+    ///         new entity is still queued, and the follow-up read fails its permission check — as a
+    ///         missing list row at best, and an outright 403 on a chained call at worst. Because most
+    ///         tuple changes come from <c>[SealedFgaRelation]</c> annotations and are invisible at the
+    ///         call site, that hazard is easy to reintroduce and hard to spot, which is why the safe
+    ///         behaviour is the default rather than something to remember to switch on.
+    ///     </para>
+    ///     <para>
+    ///         The cost is the drain latency, added to mutating requests only. Deployments without a
+    ///         cross-replica notifier pay up to <see cref="OutboxPollInterval" /> on whichever replica
+    ///         does not hold the drainer lease; with one (see <c>SealedFga.Npgsql</c>) it is
+    ///         milliseconds. Individual endpoints opt out with <c>[SealedFgaSkipOutboxWait]</c>.
+    ///     </para>
+    /// </summary>
+    public bool WaitForOutboxOnRequestEnd { get; set; } = true;
+
+    /// <summary>
+    ///     How long that wait may last before giving up. On expiry the request completes normally and
+    ///     a warning is logged: the write has already committed, so failing the caller would turn a
+    ///     latency problem into an error, and the drainer still applies the rows afterwards.
+    /// </summary>
+    public TimeSpan OutboxWaitTimeout { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    ///     How often the wait re-reads row state. The drainer usually finishes before the first check,
+    ///     so this mostly governs how promptly a slower drain is noticed.
+    /// </summary>
+    public TimeSpan OutboxWaitPollInterval { get; set; } = TimeSpan.FromMilliseconds(25);
+
+    /// <summary>
+    ///     Most rows one scope may enqueue and still be waited on. A bulk fan-out is not something a
+    ///     request should block on, so beyond this the wait is skipped (the drainer applies the rows
+    ///     as usual). It also bounds what a long-lived background scope remembers.
+    /// </summary>
+    public int OutboxWaitMaxRows { get; set; } = 200;
 
     /// <summary>Maximum number of outbox rows processed per drain pass.</summary>
     public int OutboxBatchSize { get; set; } = 100;

@@ -38,6 +38,10 @@
     <!-- SealedFga consumed as the packed NuGet package (runtime lib + analyzer payload),
          restored from the local feed — exactly what a real consumer resolves. -->
     <PackageReference Include="SealedFga" Version="$(SealedFgaVersion)" />
+
+    <!-- The PostgreSQL signaling companion, also as a packed package: it must pull SealedFga and
+         Npgsql in as real package dependencies, not just happen to work from a project reference. -->
+    <PackageReference Include="SealedFga.Npgsql" Version="$(SealedFgaVersion)" />
   </ItemGroup>
 
   <!-- No <AdditionalFiles Include="model.fga" /> here on purpose: the SealedFga package's build props

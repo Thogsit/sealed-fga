@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../settings.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>SealedFga.Npgsql</RootNamespace>
+    <PackageId>SealedFga.Npgsql</PackageId>
+    <Version>$(SealedFgaVersion)</Version>
+
+    <!-- Package metadata -->
+    <Title>SealedFGA PostgreSQL signaling</Title>
+    <Description>PostgreSQL LISTEN/NOTIFY transport that wakes the SealedFGA outbox drainer across replicas</Description>
+    <Authors>Leonard Sondermann</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Thogsit/sealed-fga</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Thogsit/sealed-fga</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>openfga;authorization;postgresql;npgsql;outbox</PackageTags>
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+
+    <!-- Deliberately a separate package from SealedFga: Npgsql is a real dependency here, and the
+         core package must stay provider-agnostic (consumers on SQL Server / SQLite / InMemory
+         should not drag a PostgreSQL driver into their closure). Versioned in lockstep with the
+         core via SealedFgaVersion — the two only work together. -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <IncludeSource>true</IncludeSource>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ASP.NET Core for BackgroundService + IHealthCheck, as the core package already needs. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Npgsql" Version="$(NpgsqlVersion)" />
+    <!-- PrivateAssets=none so the SealedFga dependency carries its analyzer and build props through
+         to anyone who reaches it transitively. The packing default excludes both, which would hand a
+         consumer the runtime library without the source generator that makes it usable. -->
+    <ProjectReference Include="..\SealedFga\SealedFga.csproj" PrivateAssets="none" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Readme.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

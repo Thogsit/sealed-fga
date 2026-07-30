@@ -13,12 +13,18 @@ library first", so it must be packed into the local feed before it can restore.
 ## Running it
 
 ```bash
-# 1. Pack SealedFga into the local feed this project restores from.
-dotnet pack SealedFga/SealedFga.csproj -c Debug -o SealedFga.PackagingTests/local-packages
+# 1. Pack both packages into the local feed this project restores from.
+#    Build explicitly first: `dotnet pack` alone has been observed to reuse a stale assembly after a
+#    source edit, which packs old bits under the same version and makes these tests pass against code
+#    that no longer exists. One project per invocation — MSBuild rejects two.
+dotnet build SealedFga/SealedFga.csproj -c Debug --no-incremental
+dotnet build SealedFga.Npgsql/SealedFga.Npgsql.csproj -c Debug --no-incremental
+dotnet pack SealedFga/SealedFga.csproj -c Debug -o SealedFga.PackagingTests/local-packages --no-build
+dotnet pack SealedFga.Npgsql/SealedFga.Npgsql.csproj -c Debug -o SealedFga.PackagingTests/local-packages --no-build
 
 # 2. The package version is fixed (SealedFgaVersion in settings.props), so NuGet caches it by
 #    version — clear the cached copy so a freshly packed build is picked up.
-dotnet nuget locals global-packages --clear   # or: rm -rf ~/.nuget/packages/sealedfga
+dotnet nuget locals global-packages --clear   # or: rm -rf ~/.nuget/packages/sealedfga*
 
 # 3. Restore + test.
 dotnet test SealedFga.PackagingTests/SealedFga.PackagingTests.csproj -c Debug

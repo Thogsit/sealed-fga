@@ -13,5 +13,6 @@
        packed NuGet package (analyzer + runtime, as shipped), which must be packed into the local feed
        before it can restore. It is driven standalone via pack-then-test (see its README / the CI job). -->
   <Project Path="SealedFga/SealedFga.csproj" />
+  <Project Path="SealedFga.Npgsql/SealedFga.Npgsql.csproj" />
   <Project Path="SealedFga.Analyzers/SealedFga.Analyzers.csproj" />
 </Solution>

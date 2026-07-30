@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SealedFga\SealedFga.csproj" />
+    <!-- The PostgreSQL LISTEN/NOTIFY signaling package, exercised against the Testcontainers DB. -->
+    <ProjectReference Include="..\SealedFga.Npgsql\SealedFga.Npgsql.csproj" />
     <!-- Reuse the shared test entities / DbContext / strongly-typed IDs from the unit-test project. -->
     <ProjectReference Include="..\SealedFga.Tests\SealedFga.Tests.csproj" />
     <!-- The web host under test (runs the source generator internally). -->

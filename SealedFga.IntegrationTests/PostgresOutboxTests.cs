@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Time.Testing;
 using SealedFga.Fga.Outbox;
 using SealedFga.Tests.Support;
@@ -28,9 +29,21 @@ public sealed class PostgresFixture : IAsyncLifetime {
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
+    /// <summary>The container's connection string, for tests that need a raw connection of their own.</summary>
+    public string ConnectionString => _container.GetConnectionString();
+
     public TestDbContext CreateContext() {
         var options = new DbContextOptionsBuilder<TestDbContext>()
                      .UseNpgsql(_container.GetConnectionString())
+                     .Options;
+        return new TestDbContext(options);
+    }
+
+    /// <summary>Creates a context with interceptors attached, as a consumer's `AddSealedFga` would.</summary>
+    public TestDbContext CreateContextWithInterceptors(params IInterceptor[] interceptors) {
+        var options = new DbContextOptionsBuilder<TestDbContext>()
+                     .UseNpgsql(_container.GetConnectionString())
+                     .AddInterceptors(interceptors)
                      .Options;
         return new TestDbContext(options);
     }

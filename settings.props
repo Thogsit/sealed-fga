@@ -1,9 +1,12 @@
 <Project>
   <PropertyGroup>
-    <SealedFgaVersion>0.4.1</SealedFgaVersion>
+    <SealedFgaVersion>0.5.0</SealedFgaVersion>
     <MicrosoftCodeAnalysisVersion>4.14.0</MicrosoftCodeAnalysisVersion>
     <OpenFgaSdkVersion>0.10.0</OpenFgaSdkVersion>
     <MicrosoftEntityFrameworkCoreVersion>10.0.10</MicrosoftEntityFrameworkCoreVersion>
+    <!-- Only the SealedFga.Npgsql package; kept in step with the Npgsql that
+         Npgsql.EntityFrameworkCore.PostgreSQL resolves in SealedFga.IntegrationTests. -->
+    <NpgsqlVersion>10.0.3</NpgsqlVersion>
     <SystemCollectionsImmutableVersion>9.0.0</SystemCollectionsImmutableVersion>
 
     <!-- Test tooling -->

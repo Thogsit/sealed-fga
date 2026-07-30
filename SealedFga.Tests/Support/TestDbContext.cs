@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using SealedFga.Fga.Outbox;
 
 namespace SealedFga.Tests.Support;
@@ -48,11 +49,26 @@ public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(
     ///     Creates an additional context over an existing SQLite connection (sharing the same
     ///     in-memory database) — e.g. to simulate a second replica competing for the drainer lease.
     /// </summary>
-    public static TestDbContext CreateSqliteOn(SqliteConnection connection) {
+    public static TestDbContext CreateSqliteOn(SqliteConnection connection, params IInterceptor[] interceptors) {
         var options = new DbContextOptionsBuilder<TestDbContext>()
                      .UseSqlite(connection)
+                     .AddInterceptors(interceptors)
                      .Options;
         return new TestDbContext(options);
+    }
+
+    /// <summary>
+    ///     Creates a context over a fresh in-memory SQLite connection with the given interceptors
+    ///     attached, as a real consumer's <c>AddSealedFga</c> would. The caller owns the connection.
+    /// </summary>
+    public static (TestDbContext Context, SqliteConnection Connection) CreateSqliteWith(
+        params IInterceptor[] interceptors
+    ) {
+        var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var context = CreateSqliteOn(connection, interceptors);
+        context.Database.EnsureCreated();
+        return (context, connection);
     }
 
     /// <summary>Creates a context on the InMemory provider (for the non-relational code paths).</summary>

@@ -9,7 +9,9 @@ using Microsoft.Extensions.Options;
 namespace SealedFga.Fga.Outbox;
 
 /// <summary>
-///     Background worker that periodically drains the SealedFGA outbox into OpenFGA. Registered
+///     Background worker that drains the SealedFGA outbox into OpenFGA, woken by
+///     <see cref="SealedFgaOutboxSignal" /> as soon as an enqueuing transaction commits and falling
+///     back to polling every <see cref="SealedFgaOptions.OutboxPollInterval" />. Registered
 ///     automatically by the generated <c>ConfigureSealedFga&lt;TDbContext&gt;()</c>.
 ///     Cluster-safe: on relational providers only the replica holding the drainer lease
 ///     (<see cref="SealedFgaOutboxLease" />) drains — the lease is renewed ahead of every drain
@@ -20,7 +22,8 @@ namespace SealedFga.Fga.Outbox;
 /// <typeparam name="TDbContext">The consumer's <see cref="DbContext" /> that hosts the outbox table.</typeparam>
 public class SealedFgaOutboxHostedService<TDbContext>(
     IServiceProvider serviceProvider,
-    IOptions<SealedFgaOptions> options
+    IOptions<SealedFgaOptions> options,
+    SealedFgaOutboxSignal signal
 ) : BackgroundService
     where TDbContext : DbContext {
     private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(1);
@@ -86,8 +89,16 @@ public class SealedFgaOutboxHostedService<TDbContext>(
                 // inside the drainer. Wait for the next poll and try again.
             }
 
+            // Taken after the pass, so an enqueue that committed while it ran leaves this already
+            // completed and the next pass starts immediately instead of sleeping through the change.
+            var wakeUp = signal.WaitAsync();
             try {
-                await Task.Delay(opts.OutboxPollInterval, timeProvider, stoppingToken);
+                var poll = Task.Delay(opts.OutboxPollInterval, timeProvider, stoppingToken);
+                if (await Task.WhenAny(poll, wakeUp) == poll) {
+                    // Observes cancellation; a poll left pending because the signal won is merely
+                    // cancelled on shutdown, which needs no observation.
+                    await poll;
+                }
             } catch (OperationCanceledException) {
                 break;
             }

@@ -98,11 +98,22 @@ public static class SealedFgaExtensions {
         // ISealedFgaService (mockable) while library internals keep the concrete class.
         services.AddScoped<ISealedFgaService>(sp => sp.GetRequiredService<SealedFgaService>());
         services.AddScoped<SealedFgaSaveChangesInterceptor>();
+        services.AddScoped<SealedFgaOutboxSignalInterceptor>();
+        services.AddScoped<SealedFgaOutboxTrackingInterceptor>();
+        // Scoped: "the rows this request enqueued" is per-request state, and the waiter
+        // below has to see exactly what the tracking interceptor recorded.
+        services.AddScoped<SealedFgaOutboxPendingRows>();
+        services.AddScoped<SealedFgaOutboxWaiter<TDbContext>>();
         // Singleton: the authorization-model cache is shared across the scoped services.
         services.TryAddSingleton<SealedFgaAuthModelCache>();
+        // Singleton: the enqueue side and the drainer must share one signal instance.
+        services.TryAddSingleton<SealedFgaOutboxSignal>();
         services.AddHostedService<SealedFgaOutboxHostedService<TDbContext>>();
         services.AddControllers(options => {
                 options.ModelBinderProviders.Insert(0, new SealedFgaModelBinderProvider<TDbContext>());
+                // Registered unconditionally and gated at run time instead: the options
+                // are configured after this call, so their values are not knowable here.
+                options.Filters.Add<SealedFgaOutboxWaitFilter<TDbContext>>();
             }
         );
 
@@ -141,6 +152,11 @@ public static class SealedFgaExtensions {
     ) {
         var interceptor = serviceProvider.GetRequiredService<SealedFgaSaveChangesInterceptor>();
         options.AddInterceptors(interceptor);
+
+        // Must come second: it decides whether to wake the drainer by looking for the
+        // outbox rows the interceptor above adds during the same SavingChanges.
+        options.AddInterceptors(serviceProvider.GetRequiredService<SealedFgaOutboxSignalInterceptor>());
+        options.AddInterceptors(serviceProvider.GetRequiredService<SealedFgaOutboxTrackingInterceptor>());
 
         // Auto-register the SealedFGA outbox entity into the model without the consumer
         // having to touch their OnModelCreating.
