@@ -224,6 +224,42 @@ public class ServiceIntegrationTests(OpenFgaFixture fga) {
         results[(user, canView, objB)].ShouldBeFalse(); // untouched by the contextual tuple
     }
 
+    /// <summary>
+    ///     A batch larger than <see cref="SealedFgaOptions.MaxChecksPerBatchCheck" /> is split into
+    ///     several requests by the SDK, and this pins the property that split must preserve: every
+    ///     check gets its own answer, and each answer belongs to the check it was asked about.
+    ///     <para>
+    ///         The correlation IDs the service assigns are indices into the <b>whole</b> call, so a
+    ///         chunk after the first carries IDs that do not start at zero. If the SDK ever renumbered
+    ///         them per chunk, or dropped a chunk's results from the aggregate, results would silently
+    ///         shift onto the wrong objects — a permission answer about the wrong entity. Half the
+    ///         objects are deliberately ungranted and interleaved so a shift cannot pass.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public async Task BatchCheckAsync_maps_every_result_correctly_across_chunk_boundaries() {
+        const int count = 40; // > the default MaxChecksPerBatchCheck of 16, so this spans 3 requests
+        var user = new TestUserId("chunk-boundary-ulf");
+        var canView = new ObjRelation("can_view");
+        var objects = Enumerable.Range(0, count)
+                               .Select(i => TestObjectId.Parse(GuidOf($"chunk-{i}")))
+                               .ToList();
+
+        foreach (var obj in objects.Where((_, i) => i % 2 == 0)) {
+            await fga.Service.WriteAsync(user, canView, obj);
+        }
+
+        var results = await fga.Service.BatchCheckAsync(
+            objects.Select(o => ((ISealedFgaUser) user, (ISealedFgaRelation<TestObjectId>) canView, o))
+        );
+
+        results.Count.ShouldBe(count);
+        for (var i = 0; i < count; i++) {
+            results[(user, canView, objects[i])]
+               .ShouldBe(i % 2 == 0, $"object {i} ({objects[i]}) answered for the wrong check");
+        }
+    }
+
     [Fact]
     public async Task Higher_consistency_round_trips_on_check_list_and_batch() {
         var obj = GuidOf("consistency");

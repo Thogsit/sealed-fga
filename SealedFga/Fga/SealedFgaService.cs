@@ -43,6 +43,10 @@ public class SealedFgaService(
 
     private int MaxTuplesPerWrite => Math.Max(1, options.Value.MaxTuplesPerWrite);
 
+    private int MaxChecksPerBatchCheck => Math.Max(1, options.Value.MaxChecksPerBatchCheck);
+
+    private int MaxParallelBatchCheckRequests => Math.Max(1, options.Value.MaxParallelBatchCheckRequests);
+
     /// <summary>
     ///     Resolves the effective read consistency for a <b>list-shaped</b> operation: the per-call
     ///     value wins, falling back to <see cref="SealedFgaOptions.DefaultListConsistency" />. Single
@@ -631,8 +635,13 @@ public class SealedFgaService(
 
         // Native server-side batch check. Each item carries its ordinal index as a correlation ID
         // (matching OpenFGA's ^[\w\d-]{1,36}$ constraint) so results — which may come back in any
-        // order — map deterministically back to the input order. The SDK auto-chunks to the server's
-        // batch limit and bounds parallelism internally, so no manual fan-out is needed.
+        // order — map deterministically back to the input order.
+        //
+        // The SDK chunks and parallelizes for us, but its defaults (50 per request, 10 requests in
+        // flight) let one call ask OpenFGA to resolve 500 checks at once, which exhausts the server's
+        // datastore connection pool and wedges it irrecoverably — see MaxChecksPerBatchCheck. Both
+        // bounds are passed explicitly: capping request size alone does not help, because parallel
+        // small requests reach the same total concurrency.
         var request = new ClientBatchCheckRequest {
             Checks = checks.Select((check, index) => new ClientBatchCheckItem {
                     User = check.User,
@@ -646,7 +655,11 @@ public class SealedFgaService(
 
         var response = await openFgaClient.BatchCheck(
             request,
-            consistency is null ? null : new ClientBatchCheckOptions { Consistency = consistency },
+            new ClientBatchCheckOptions {
+                Consistency = consistency,
+                MaxBatchSize = MaxChecksPerBatchCheck,
+                MaxParallelRequests = MaxParallelBatchCheckRequests,
+            },
             cancellationToken
         );
 

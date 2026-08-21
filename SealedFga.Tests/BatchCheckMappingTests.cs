@@ -77,4 +77,25 @@ public class BatchCheckMappingTests {
               )
               .Message.ShouldContain("boom");
     }
+
+    /// <summary>
+    ///     Pins the batch-check concurrency bound, which exists for availability rather than for
+    ///     throughput and so has no visible symptom when it regresses. Left at the SDK's defaults
+    ///     (50 per request, 10 requests in flight) one <c>BatchCheckAsync</c> call asks OpenFGA to
+    ///     resolve up to 500 checks at once; measured against v1.15.1 that exhausts the server's
+    ///     datastore connection pool and leaves it unable to answer any request — including its own
+    ///     health probe — until restarted. Both bounds matter: capping request size alone does not
+    ///     help, because parallel small requests reach the same total concurrency.
+    /// </summary>
+    [Fact]
+    public void Batch_check_concurrency_defaults_stay_bounded() {
+        var options = new SealedFgaOptions();
+
+        options.MaxChecksPerBatchCheck.ShouldBe(16);
+        options.MaxParallelBatchCheckRequests.ShouldBe(1);
+
+        // The product is what reaches the server. OpenFGA's own datastore pool defaults to 30
+        // connections, and a check resolution holds one while making further reads.
+        (options.MaxChecksPerBatchCheck * options.MaxParallelBatchCheckRequests).ShouldBeLessThan(30);
+    }
 }

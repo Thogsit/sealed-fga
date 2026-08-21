@@ -155,6 +155,39 @@ public class SealedFgaOptions {
     public int MaxTuplesPerWrite { get; set; } = 100;
 
     /// <summary>
+    ///     How many checks a single <c>BatchCheck</c> request may carry, and therefore — together with
+    ///     <see cref="MaxParallelBatchCheckRequests" /> — the ceiling on how many checks OpenFGA
+    ///     resolves concurrently on behalf of one <c>BatchCheckAsync</c> call.
+    ///     <para>
+    ///         <b>This is a safety bound, not a throughput knob.</b> OpenFGA resolves the items of a
+    ///         batch concurrently (<c>--max-concurrent-checks-per-batch-check</c>, default 50) and each
+    ///         item's resolution reads the datastore with <c>--max-concurrent-reads-for-check</c>
+    ///         unbounded by default, against a connection pool of <c>--datastore-max-open-conns</c>
+    ///         (default 30). A large enough burst of *cold* concurrent resolutions — measured on
+    ///         OpenFGA v1.15.1 at around 40 distinct objects over a recursive relation — exhausts that
+    ///         pool and leaves the server unable to answer <b>any</b> request, including its own health
+    ///         probe, until it is restarted. Keeping the product of this and
+    ///         <see cref="MaxParallelBatchCheckRequests" /> comfortably under the pool size avoids it.
+    ///     </para>
+    ///     <para>
+    ///         The server's own per-request limit is 50 (<c>--max-checks-per-batch-check</c>); this
+    ///         default is deliberately lower. Raising it trades a documented availability failure mode
+    ///         for latency that measurement did not show: 1000 checks at this default complete in about
+    ///         0.3 s against a cold server.
+    ///     </para>
+    /// </summary>
+    public int MaxChecksPerBatchCheck { get; set; } = 16;
+
+    /// <summary>
+    ///     How many <c>BatchCheck</c> requests one <c>BatchCheckAsync</c> call may have in flight at
+    ///     once. Defaults to <b>1</b> — sequential — because bounding the request size alone does not
+    ///     bound concurrency: the SDK otherwise fans out (its own default is 10 parallel requests), and
+    ///     small-but-parallel requests reach the same total concurrency, and the same wedge, as one
+    ///     large one. See <see cref="MaxChecksPerBatchCheck" />.
+    /// </summary>
+    public int MaxParallelBatchCheckRequests { get; set; } = 1;
+
+    /// <summary>
     ///     How long a fetched authorization model is cached when the <c>OpenFgaClient</c> is
     ///     <b>not</b> pinned to an <c>AuthorizationModelId</c> (the server then resolves the
     ///     store's latest model, which can move, e.g. on a redeploy). With a pinned model ID the
