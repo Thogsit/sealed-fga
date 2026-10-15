@@ -93,6 +93,17 @@ public class WidgetEntity : ISealedFgaType<WidgetEntityId> {
 // delete: purge every tuple referencing widget:<Id>
 ```
 
+The attribute can be repeated to emit several tuples from one FK — typically a parent link plus
+its reverse, so the parent can reach its children in a tupleset. Each (relation, `TargetType`)
+pair may appear once per property; a repeat throws at the first SaveChanges touching the type.
+
+```csharp
+[SealedFgaRelation(nameof(WidgetEntityIdGroups.OwnedBy))]
+[SealedFgaRelation(nameof(OwnerEntityIdGroups.Widget), SealedFgaRelationTargetType.User)]
+public OwnerEntityId OwnerId { get; set; }
+// add: owner:<OwnerId> OwnedBy widget:<Id>  and  widget:<Id> Widget owner:<OwnerId>
+```
+
 **Join entity** — class-level `[SealedFgaJoinRelation]` on a many-to-many row. The tuple links
 the two named FK properties; the row's own PK appears on neither side, so the entity needs **no**
 `ISealedFgaType<TId>` and no OpenFGA type of its own:

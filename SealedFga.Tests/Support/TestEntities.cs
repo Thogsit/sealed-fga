@@ -28,6 +28,18 @@ public class TestUserEntity : ISealedFgaType<TestUserId> {
     public TestUserId Id { get; set; }
 }
 
+/// <summary>
+///     One FK carrying two relations: a parent link (entity is the object) and its reverse child link
+///     (entity is the user).
+/// </summary>
+public class TestBiLinkedEntity : ISealedFgaType<TestObjectId> {
+    [SealedFgaRelation("OwnedBy")]
+    [SealedFgaRelation("Child", SealedFgaRelationTargetType.User)]
+    public TestParentId? ParentId { get; set; }
+
+    public TestObjectId Id { get; set; }
+}
+
 /// <summary>A relation target/parent entity with no relations of its own.</summary>
 public class TestParentEntity : ISealedFgaType<TestParentId> {
     public string Name { get; set; } = "";

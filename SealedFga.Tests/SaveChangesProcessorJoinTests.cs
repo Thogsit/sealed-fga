@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using SealedFga.Attributes;
+using SealedFga.AuthModel;
 using SealedFga.Fga;
 using SealedFga.Fga.Outbox;
 using SealedFga.Tests.Support;
@@ -202,6 +203,17 @@ public class SaveChangesProcessorJoinTests {
         ex.Message.ShouldContain(nameof(ScalarWithoutFgaType));
         ex.Message.ShouldContain("ISealedFgaType");
     }
+
+    [Fact]
+    public void Duplicate_relation_and_target_type_on_one_property_throws_naming_entity_and_property() {
+        using var ctx = MisconfigDbContext.Create();
+        ctx.Add(new ScalarWithDuplicateRelation { Id = TestObjectId.New(), ParentId = TestParentId.New() });
+
+        var ex = Should.Throw<InvalidOperationException>(() => Process(ctx));
+        ex.Message.ShouldContain(nameof(ScalarWithDuplicateRelation));
+        ex.Message.ShouldContain(nameof(ScalarWithDuplicateRelation.ParentId));
+        ex.Message.ShouldContain("OwnedBy");
+    }
 }
 
 // --- Misconfigured entities: each must fail loud at the first SaveChanges touching the type. ---
@@ -229,11 +241,21 @@ public class ScalarWithoutFgaType {
     public TestParentId? ParentId { get; set; }
 }
 
+/// <summary>The same relation and orientation declared twice on one property.</summary>
+public class ScalarWithDuplicateRelation : ISealedFgaType<TestObjectId> {
+    [SealedFgaRelation("OwnedBy")]
+    [SealedFgaRelation("OwnedBy", SealedFgaRelationTargetType.Object)]
+    public TestParentId? ParentId { get; set; }
+
+    public TestObjectId Id { get; set; }
+}
+
 /// <summary>An InMemory context holding only the deliberately misconfigured entities.</summary>
 public class MisconfigDbContext(DbContextOptions<MisconfigDbContext> options) : DbContext(options) {
     public DbSet<JoinWithMissingProperty> MissingProperty => Set<JoinWithMissingProperty>();
     public DbSet<JoinWithNonIdProperty> NonIdProperty => Set<JoinWithNonIdProperty>();
     public DbSet<ScalarWithoutFgaType> ScalarWithoutType => Set<ScalarWithoutFgaType>();
+    public DbSet<ScalarWithDuplicateRelation> DuplicateRelation => Set<ScalarWithDuplicateRelation>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder) {
         base.ConfigureConventions(configurationBuilder);

@@ -418,10 +418,21 @@ public class SealedFgaSaveChangesProcessor {
 
         var scalarRelations = entityType
                              .GetProperties()
-                             .Select(prop => (Attr: prop.GetCustomAttribute<SealedFgaRelationAttribute>(), prop.Name))
-                             .Where(t => t.Attr is not null)
-                             .Select(t => (t.Attr!, t.Name))
+                             .SelectMany(prop => prop.GetCustomAttributes<SealedFgaRelationAttribute>()
+                                                     .Select(attr => (Attr: attr, prop.Name))
+                              )
                              .ToList();
+
+        var duplicate = scalarRelations
+                       .GroupBy(t => (t.Name, t.Attr.Relation, t.Attr.TargetType))
+                       .FirstOrDefault(g => g.Count() > 1);
+        if (duplicate is not null) {
+            throw new InvalidOperationException(
+                $"Property '{entityType.Name}.{duplicate.Key.Name}' declares "
+                + $"[SealedFgaRelation(\"{duplicate.Key.Relation}\")] with target type "
+                + $"{duplicate.Key.TargetType} more than once. It would emit the same tuple twice."
+            );
+        }
 
         if (isTupleSource
             && (scalarRelations.Count > 0 || entityType.GetCustomAttributes<SealedFgaJoinRelationAttribute>().Any())) {

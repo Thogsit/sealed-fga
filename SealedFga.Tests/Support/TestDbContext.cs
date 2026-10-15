@@ -16,6 +16,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(
     public DbSet<TestUserEntity> Users => Set<TestUserEntity>();
     public DbSet<TestParentEntity> Parents => Set<TestParentEntity>();
     public DbSet<TestJoinEntity> Joins => Set<TestJoinEntity>();
+    public DbSet<TestBiLinkedEntity> BiLinked => Set<TestBiLinkedEntity>();
     public DbSet<TestGrantEntity> Grants => Set<TestGrantEntity>();
     public DbSet<SealedFgaOutboxEntry> Outbox => Set<SealedFgaOutboxEntry>();
 

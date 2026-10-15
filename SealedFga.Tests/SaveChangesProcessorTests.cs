@@ -163,6 +163,84 @@ public class SaveChangesProcessorTests {
     }
 
     [Fact]
+    public void Added_entity_with_two_relations_on_one_property_emits_both_tuples() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var parentId = new TestParentId(Guid.NewGuid());
+        var entity = new TestBiLinkedEntity { Id = TestObjectId.New(), ParentId = parentId };
+        ctx.BiLinked.Add(entity);
+
+        Process(ctx);
+
+        var rows = PendingOutbox(ctx);
+        rows.Count.ShouldBe(2);
+        rows.ShouldAllBe(r => r.OperationType == SealedFgaOutboxOperationType.WriteTuple);
+
+        var parentLink = rows.Single(r => r.TupleRelation == "OwnedBy");
+        parentLink.TupleUser.ShouldBe(parentId.AsOpenFgaIdTupleString());
+        parentLink.TupleObject.ShouldBe(entity.Id.AsOpenFgaIdTupleString());
+
+        var childLink = rows.Single(r => r.TupleRelation == "Child");
+        childLink.TupleUser.ShouldBe(entity.Id.AsOpenFgaIdTupleString());
+        childLink.TupleObject.ShouldBe(parentId.AsOpenFgaIdTupleString());
+    }
+
+    [Fact]
+    public void Modified_property_with_two_relations_emits_delete_and_write_for_each() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var oldParent = new TestParentId(Guid.NewGuid());
+        var newParent = new TestParentId(Guid.NewGuid());
+        var entity = new TestBiLinkedEntity { Id = TestObjectId.New(), ParentId = oldParent };
+        ctx.BiLinked.Add(entity);
+        ctx.SaveChanges();
+
+        entity.ParentId = newParent;
+        Process(ctx);
+
+        var rows = PendingOutbox(ctx);
+        rows.Count.ShouldBe(4);
+        var entityTuple = entity.Id.AsOpenFgaIdTupleString();
+
+        rows.ShouldContain(r => r.OperationType == SealedFgaOutboxOperationType.DeleteTuple
+                                && r.TupleRelation == "OwnedBy"
+                                && r.TupleUser == oldParent.AsOpenFgaIdTupleString()
+                                && r.TupleObject == entityTuple);
+        rows.ShouldContain(r => r.OperationType == SealedFgaOutboxOperationType.WriteTuple
+                                && r.TupleRelation == "OwnedBy"
+                                && r.TupleUser == newParent.AsOpenFgaIdTupleString()
+                                && r.TupleObject == entityTuple);
+        rows.ShouldContain(r => r.OperationType == SealedFgaOutboxOperationType.DeleteTuple
+                                && r.TupleRelation == "Child"
+                                && r.TupleUser == entityTuple
+                                && r.TupleObject == oldParent.AsOpenFgaIdTupleString());
+        rows.ShouldContain(r => r.OperationType == SealedFgaOutboxOperationType.WriteTuple
+                                && r.TupleRelation == "Child"
+                                && r.TupleUser == entityTuple
+                                && r.TupleObject == newParent.AsOpenFgaIdTupleString());
+    }
+
+    [Fact]
+    public void Deleted_entity_with_two_relations_emits_single_delete_all_for_object() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var entity = new TestBiLinkedEntity { Id = TestObjectId.New(), ParentId = new TestParentId(Guid.NewGuid()) };
+        ctx.BiLinked.Add(entity);
+        ctx.SaveChanges();
+
+        ctx.BiLinked.Remove(entity);
+        Process(ctx);
+
+        var rows = PendingOutbox(ctx);
+        rows.Count.ShouldBe(1);
+        rows[0].OperationType.ShouldBe(SealedFgaOutboxOperationType.DeleteAllForObject);
+        rows[0].TargetId.ShouldBe(entity.Id.AsOpenFgaIdTupleString());
+    }
+
+    [Fact]
     public void Null_context_is_a_noop() {
         // Should not throw.
         new SealedFgaSaveChangesProcessor().ProcessSealedFgaChanges(null);

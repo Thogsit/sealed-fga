@@ -23,13 +23,18 @@ public enum SealedFgaRelationTargetType {
 ///         tuple and writes the new; deleting the entity purges every tuple referencing its Id.
 ///     </para>
 ///     <para>
+///         The attribute may be repeated on one property to emit several tuples from the same FK,
+///         e.g. a parent link and its reverse child link. Each (relation, target type) pair may
+///         appear only once per property.
+///     </para>
+///     <para>
 ///         For a many-to-many join entity whose tuple links its two FK ends (neither side being the
 ///         row's own Id), use the class-level <see cref="SealedFgaJoinRelationAttribute" /> instead.
 ///     </para>
 /// </summary>
 /// <param name="relation">The OpenFGA relation name, e.g. <c>nameof(SecretEntityIdGroups.OwnedBy)</c>.</param>
 /// <param name="targetType">Which tuple side the entity's own Id takes (default: <c>Object</c>).</param>
-[AttributeUsage(AttributeTargets.Property)]
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = true)]
 public class SealedFgaRelationAttribute(
     string relation,
     SealedFgaRelationTargetType targetType = SealedFgaRelationTargetType.Object) : Attribute {

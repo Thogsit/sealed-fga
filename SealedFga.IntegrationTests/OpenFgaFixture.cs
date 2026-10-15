@@ -23,6 +23,7 @@ namespace SealedFga.IntegrationTests;
 public sealed class OpenFgaFixture : IAsyncLifetime {
     // Model mirroring the shared test entities' [SealedFgaRelation]s:
     //   testparent.Member  : [testuser]     (TestUserEntity, TargetType.User)
+    //   testparent.Child    : [testobject]   (TestBiLinkedEntity's reverse link, TargetType.User)
     //   testobject.OwnedBy  : [testparent]   (TestObjectEntity, TargetType.Object)
     //   testobject.can_view : [testuser, testparent#Member] (a plain checkable relation for the
     //     service tests; also accepts userset subjects for the typed-enqueue tests)
@@ -38,8 +39,11 @@ public sealed class OpenFgaFixture : IAsyncLifetime {
           { "type": "testgrant" },
           {
             "type": "testparent",
-            "relations": { "Member": { "this": {} } },
-            "metadata": { "relations": { "Member": { "directly_related_user_types": [ { "type": "testuser" } ] } } }
+            "relations": { "Member": { "this": {} }, "Child": { "this": {} } },
+            "metadata": { "relations": {
+              "Member": { "directly_related_user_types": [ { "type": "testuser" } ] },
+              "Child": { "directly_related_user_types": [ { "type": "testobject" } ] }
+            } }
           },
           {
             "type": "testobject",

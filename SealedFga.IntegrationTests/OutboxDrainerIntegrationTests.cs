@@ -178,6 +178,34 @@ public class OutboxDrainerIntegrationTests(OpenFgaFixture fga) {
             t.Key.User == userId.AsOpenFgaIdTupleString() && t.Key.Relation == "can_view");
     }
 
+    [Fact]
+    public async Task End_to_end_two_relations_on_one_property_write_and_purge_in_openfga() {
+        var (ctx, conn) = TestDbContext.CreateSqlite();
+        using var _ = conn;
+
+        var parentId = new TestParentId(GuidOf<Guid>("bilink-parent"));
+        var entity = new TestBiLinkedEntity { Id = TestObjectId.New(), ParentId = parentId };
+        ctx.BiLinked.Add(entity);
+        new SealedFgaSaveChangesProcessor().ProcessSealedFgaChanges(ctx);
+        await ctx.SaveChangesAsync();
+
+        (await SealedFgaOutboxDrainer.DrainOnceAsync(ctx, fga.Service, batchSize: 10, maxAttempts: 5)).ShouldBe(2);
+        (await fga.Client.Read(new ClientReadRequest { Object = entity.Id.AsOpenFgaIdTupleString() }))
+           .Tuples.ShouldContain(t => t.Key.User == parentId.AsOpenFgaIdTupleString() && t.Key.Relation == "OwnedBy");
+        (await fga.Client.Read(new ClientReadRequest { Object = parentId.AsOpenFgaIdTupleString() }))
+           .Tuples.ShouldContain(t => t.Key.User == entity.Id.AsOpenFgaIdTupleString() && t.Key.Relation == "Child");
+
+        // The delete purge covers the entity on both tuple sides.
+        ctx.BiLinked.Remove(entity);
+        new SealedFgaSaveChangesProcessor().ProcessSealedFgaChanges(ctx);
+        await ctx.SaveChangesAsync();
+
+        (await SealedFgaOutboxDrainer.DrainOnceAsync(ctx, fga.Service, batchSize: 10, maxAttempts: 5)).ShouldBe(1);
+        (await fga.Client.Read(new ClientReadRequest { Object = entity.Id.AsOpenFgaIdTupleString() })).Tuples.ShouldBeEmpty();
+        (await fga.Client.Read(new ClientReadRequest { Object = parentId.AsOpenFgaIdTupleString() }))
+           .Tuples.ShouldNotContain(t => t.Key.User == entity.Id.AsOpenFgaIdTupleString());
+    }
+
     private static string GuidOf(string seed) => GuidOf<Guid>(seed).ToString();
 
     private static T GuidOf<T>(string seed) {
