@@ -51,6 +51,19 @@ type widget
 > `<SealedFgaSplitRelationClasses>false</SealedFgaSplitRelationClasses>` in your csproj and all
 > relations land in a single `{Entity}IdRelations` class instead.
 
+Each relation class also has:
+
+- `AllRelations` — every constant of the class, in model order.
+- `TryFromOpenFgaString(string, out relation)` — returns the generated constant, or `false` for a name the
+  class does not have. Use it for relation names that arrive as data (API input, stored rows).
+- `FromOpenFgaString(string)` — wraps any string without validating it, for names you compute yourself
+  (e.g. `$"p_{permission}"`).
+
+Relations compare by value (same class, same relation string), so a parsed relation equals the generated
+constant and works as a `HashSet`/`Dictionary` key. `Value` is init-only. An `==` between two
+`ISealedFgaRelation<T>`-typed variables is still reference equality (C# does not apply class operators to
+interfaces); use `Equals` there.
+
 ## 2. Declare strong ID types
 
 One empty `readonly partial record struct` per OpenFGA object type. The `name` must match a

@@ -23,12 +23,36 @@ internal static class TypeNameRelationsGenerator {
           {
               {{GetEnumFields(className, relNames)}}
 
+              /// <summary>Every relation of this class, in model order.</summary>
+              public static readonly global::System.Collections.Generic.IReadOnlyList<{{className}}> AllRelations =
+              [
+                  {{GetAllRelationsItems(relNames)}}
+              ];
+
               /// <summary>
-              ///     Creates a <see cref="{{className}}"/> from an OpenFGA relation string.
+              ///     Creates a <see cref="{{className}}"/> from an OpenFGA relation string without validating it, for
+              ///     relation names computed at runtime. Use <see cref="TryFromOpenFgaString"/> for untrusted input.
               /// </summary>
               /// <param name="openFgaString">The OpenFGA relation string.</param>
               /// <returns>A new <see cref="{{className}}"/> instance.</returns>
               public static {{className}} FromOpenFgaString(string openFgaString) => new {{className}}(openFgaString);
+
+              /// <summary>Looks up the relation of this class named <paramref name="openFgaString"/> (ordinal).</summary>
+              /// <param name="openFgaString">The OpenFGA relation string.</param>
+              /// <param name="relation">The generated constant, or <c>null</c> when the class has no such relation.</param>
+              /// <returns>Whether the class has the relation.</returns>
+              public static bool TryFromOpenFgaString(
+                  string? openFgaString,
+                  [global::System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out {{className}}? relation
+              )
+              {
+                  relation = openFgaString switch
+                  {
+                      {{GetLookupArms(relNames)}}
+                      _ => null,
+                  };
+                  return relation is not null;
+              }
           }
           """,
         new HashSet<string>([
@@ -110,6 +134,12 @@ internal static class TypeNameRelationsGenerator {
             ),
             4
         );
+
+    private static string GetAllRelationsItems(List<string> relNames)
+        => GeneratorUtil.BuildLinesWithIndent(relNames.Select(rel => $"{rel},"), 8).TrimEnd();
+
+    private static string GetLookupArms(List<string> relNames)
+        => GeneratorUtil.BuildLinesWithIndent(relNames.Select(rel => $"\"{rel}\" => {rel},"), 12).TrimEnd();
 
     /// <summary>The <c>{ClassName}Permissions</c> class name (lowercase-first relations).</summary>
     private static string PermissionsClassName(IdClassToGenerateData idClass) => idClass.ClassName + "Permissions";

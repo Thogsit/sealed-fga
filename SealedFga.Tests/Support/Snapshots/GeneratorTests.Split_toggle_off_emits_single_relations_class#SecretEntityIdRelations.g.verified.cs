@@ -21,10 +21,36 @@ public class SecretEntityIdRelations(string val)
     public static readonly SecretEntityIdRelations can_view = new SecretEntityIdRelations("can_view");
 
 
+    /// <summary>Every relation of this class, in model order.</summary>
+    public static readonly global::System.Collections.Generic.IReadOnlyList<SecretEntityIdRelations> AllRelations =
+    [
+        OwnedBy,
+        can_view,
+    ];
+
     /// <summary>
-    ///     Creates a <see cref="SecretEntityIdRelations"/> from an OpenFGA relation string.
+    ///     Creates a <see cref="SecretEntityIdRelations"/> from an OpenFGA relation string without validating it, for
+    ///     relation names computed at runtime. Use <see cref="TryFromOpenFgaString"/> for untrusted input.
     /// </summary>
     /// <param name="openFgaString">The OpenFGA relation string.</param>
     /// <returns>A new <see cref="SecretEntityIdRelations"/> instance.</returns>
     public static SecretEntityIdRelations FromOpenFgaString(string openFgaString) => new SecretEntityIdRelations(openFgaString);
+
+    /// <summary>Looks up the relation of this class named <paramref name="openFgaString"/> (ordinal).</summary>
+    /// <param name="openFgaString">The OpenFGA relation string.</param>
+    /// <param name="relation">The generated constant, or <c>null</c> when the class has no such relation.</param>
+    /// <returns>Whether the class has the relation.</returns>
+    public static bool TryFromOpenFgaString(
+        string? openFgaString,
+        [global::System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out SecretEntityIdRelations? relation
+    )
+    {
+        relation = openFgaString switch
+        {
+            "OwnedBy" => OwnedBy,
+            "can_view" => can_view,
+            _ => null,
+        };
+        return relation is not null;
+    }
 }
