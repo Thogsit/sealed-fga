@@ -308,3 +308,29 @@ These remain your responsibility — SealedFGA does not provision infrastructure
 3. **Add an EF migration for the outbox** (`SealedFgaOutbox` table) on relational providers — the
    `SealedFgaOutboxEntry` entity is added to your model automatically, but the table still needs a
    migration.
+
+## Batch checks by type name
+
+The generator emits `TryBatchCheckByTypeNameAsync` alongside `TryCheckByTypeNameAsync`.
+Use the runtime `SealedFga.Fga.TypeNameCheck` record for checks whose types arrive as strings:
+
+```csharp
+IReadOnlyList<bool>? allowed = await service.TryBatchCheckByTypeNameAsync(user, [
+    new TypeNameCheck("secret", "can_view", secretId),
+    new TypeNameCheck("agency", "Member", agencyId),
+], options, ct);
+```
+
+Results follow input order, including duplicates. The dispatcher makes one typed
+`BatchCheckAsync` call per object type (the runtime may chunk each call). Explicit options and
+per-object ambient contextual tuples, such as a super-user grant, use the normal typed batch path.
+Types are case sensitive; unknown or relationless types return `null` for the entire batch before
+any service call or ID parsing. Empty input returns an empty list without calls.
+
+Like the single dispatcher, IDs use the generated `Parse` helper: malformed GUIDs/numbers throw
+`FormatException`, and numeric overflow throws `OverflowException`. Relations use the lenient
+`FromOpenFgaString` helper: arbitrary names, including computed permissions, pass through unchanged;
+the service/OpenFGA determines their result or error. Service exceptions propagate. Groups execute
+sequentially, so a later parsing or service error can occur after an earlier group has completed.
+Ambient consistency follows the existing batch API: explicit per-call consistency applies to the
+whole batch; ambient contextual tuples are resolved per object.

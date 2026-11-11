@@ -6,8 +6,10 @@
 
 using SealedFga.AuthModel;
 using SealedFga.Fga;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Threading;
+using System;
 
 namespace SealedFga;
 
@@ -47,4 +49,69 @@ public static class SealedFgaCheckDispatch {
 
             _ => null,
         };
+
+    /// <summary>
+    ///     Checks a batch in input order with one typed BatchCheckAsync call per object type.
+    ///     Returns null without service calls if any type is unknown or not checkable.
+    ///     Empty input returns an empty list. Like TryCheckByTypeNameAsync, invalid IDs throw
+    ///     from the generated Parse helper and arbitrary relation strings pass through to the service.
+    ///     Explicit options and per-object ambient contextual tuples apply through the typed batch API.
+    /// </summary>
+    public static async Task<IReadOnlyList<bool>?> TryBatchCheckByTypeNameAsync(
+        this ISealedFgaService svc,
+        ISealedFgaUser user,
+        IReadOnlyList<TypeNameCheck> checks,
+        SealedFgaQueryOptions? options = null,
+        CancellationToken ct = default
+    ) {
+        var groups = new Dictionary<string, List<(int Index, TypeNameCheck Check)>>();
+        for (var i = 0; i < checks.Count; i++) {
+            var check = checks[i];
+            if (!(check.TypeName switch {
+                "agency" => true,
+                "secret" => true,
+
+                _ => false,
+            })) return null;
+            if (!groups.TryGetValue(check.TypeName, out var group)) {
+                group = new List<(int Index, TypeNameCheck Check)>();
+                groups.Add(check.TypeName, group);
+            }
+            group.Add((i, check));
+        }
+
+        var results = new bool[checks.Count];
+        foreach (var group in groups) {
+            switch (group.Key) {
+                case "agency":
+                    await BatchCheckTypeAsync<TestApp.AgencyEntityId>(svc, user, group.Value, TestApp.AgencyEntityIdGroups.FromOpenFgaString, TestApp.AgencyEntityId.Parse, results, options, ct);
+                    break;
+                case "secret":
+                    await BatchCheckTypeAsync<TestApp.SecretEntityId>(svc, user, group.Value, TestApp.SecretEntityIdPermissions.FromOpenFgaString, TestApp.SecretEntityId.Parse, results, options, ct);
+                    break;
+
+            }
+        }
+        return results;
+    }
+
+    private static async Task BatchCheckTypeAsync<TObjId>(
+        ISealedFgaService svc,
+        ISealedFgaUser user,
+        List<(int Index, TypeNameCheck Check)> group,
+        Func<string, ISealedFgaRelation<TObjId>> relationFromString,
+        Func<string, TObjId> parseId,
+        bool[] results,
+        SealedFgaQueryOptions? options,
+        CancellationToken ct
+    ) where TObjId : ISealedFgaTypeId<TObjId> {
+        var typedChecks = new List<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)>();
+        foreach (var item in group) {
+            typedChecks.Add((user, relationFromString(item.Check.Relation), parseId(item.Check.ObjectId)));
+        }
+        var answers = await svc.BatchCheckAsync(typedChecks, options, ct);
+        for (var i = 0; i < group.Count; i++) {
+            results[group[i].Index] = answers[typedChecks[i]];
+        }
+    }
 }

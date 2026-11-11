@@ -57,9 +57,68 @@ internal static class SealedFgaCheckDispatchGenerator {
                       {{GetSwitchArms(authModel, idClasses, splitRelationClasses)}}
                       _ => null,
                   };
+
+              /// <summary>
+              ///     Checks a batch in input order with one typed BatchCheckAsync call per object type.
+              ///     Returns null without service calls if any type is unknown or not checkable.
+              ///     Empty input returns an empty list. Like TryCheckByTypeNameAsync, invalid IDs throw
+              ///     from the generated Parse helper and arbitrary relation strings pass through to the service.
+              ///     Explicit options and per-object ambient contextual tuples apply through the typed batch API.
+              /// </summary>
+              public static async Task<IReadOnlyList<bool>?> TryBatchCheckByTypeNameAsync(
+                  this ISealedFgaService svc,
+                  ISealedFgaUser user,
+                  IReadOnlyList<TypeNameCheck> checks,
+                  SealedFgaQueryOptions? options = null,
+                  CancellationToken ct = default
+              ) {
+                  var groups = new Dictionary<string, List<(int Index, TypeNameCheck Check)>>();
+                  for (var i = 0; i < checks.Count; i++) {
+                      var check = checks[i];
+                      if (!(check.TypeName switch {
+                          {{GetKnownTypeArms(authModel, idClasses, splitRelationClasses)}}
+                          _ => false,
+                      })) return null;
+                      if (!groups.TryGetValue(check.TypeName, out var group)) {
+                          group = new List<(int Index, TypeNameCheck Check)>();
+                          groups.Add(check.TypeName, group);
+                      }
+                      group.Add((i, check));
+                  }
+
+                  var results = new bool[checks.Count];
+                  foreach (var group in groups) {
+                      switch (group.Key) {
+                          {{GetBatchCases(authModel, idClasses, splitRelationClasses)}}
+                      }
+                  }
+                  return results;
+              }
+
+              private static async Task BatchCheckTypeAsync<TObjId>(
+                  ISealedFgaService svc,
+                  ISealedFgaUser user,
+                  List<(int Index, TypeNameCheck Check)> group,
+                  Func<string, ISealedFgaRelation<TObjId>> relationFromString,
+                  Func<string, TObjId> parseId,
+                  bool[] results,
+                  SealedFgaQueryOptions? options,
+                  CancellationToken ct
+              ) where TObjId : ISealedFgaTypeId<TObjId> {
+                  var typedChecks = new List<(ISealedFgaUser User, ISealedFgaRelation<TObjId> Relation, TObjId Object)>();
+                  foreach (var item in group) {
+                      typedChecks.Add((user, relationFromString(item.Check.Relation), parseId(item.Check.ObjectId)));
+                  }
+                  var answers = await svc.BatchCheckAsync(typedChecks, options, ct);
+                  for (var i = 0; i < group.Count; i++) {
+                      results[group[i].Index] = answers[typedChecks[i]];
+                  }
+              }
           }
           """,
         new HashSet<string>([
+                "System",
+                "System.Collections.Generic",
                 "System.Threading",
                 "System.Threading.Tasks",
                 Settings.AuthModelNamespace,
@@ -79,30 +138,51 @@ internal static class SealedFgaCheckDispatchGenerator {
         ImmutableArray<IdClassToGenerateData> idClasses,
         bool splitRelationClasses
     ) {
-        var seenTypeNames = new HashSet<string>();
-        var arms = idClasses
-                  .OrderBy(idClass => idClass.TypeName, System.StringComparer.Ordinal)
-                  .Select(idClass => {
-                           var relationClassName = TypeNameRelationsGenerator.ResolveDispatchRelationClassName(
-                               authModel,
-                               idClass,
-                               splitRelationClasses
-                           );
-                           if (relationClassName is null) return null; // not checkable → no arm
-                           if (!seenTypeNames.Add(idClass.TypeName)) return null; // dedupe duplicate type names
-
-                           var fqIdClass = $"{idClass.ClassNamespace}.{idClass.ClassName}";
-                           var fqRelationClass = $"{idClass.ClassNamespace}.{relationClassName}";
-                           return $"\"{idClass.TypeName}\" => await svc.CheckAsync(user, "
-                                + $"{fqRelationClass}.FromOpenFgaString(relation), {fqIdClass}.Parse(objectId), "
-                                + "queryOptions, cancellationToken),";
-                       }
-                   )
-                  .Where(arm => arm is not null)
-                  .Select(arm => arm!);
+        var arms = GetDispatchTypes(authModel, idClasses, splitRelationClasses)
+            .Select(type => $"\"{type.TypeName}\" => await svc.CheckAsync(user, "
+                          + $"{type.RelationClass}.FromOpenFgaString(relation), {type.IdClass}.Parse(objectId), "
+                          + "queryOptions, cancellationToken),");
 
         // 12 = the emitted indent of the switch arms (matches the `{{...}}` placeholder column), so
         // multi-arm output stays aligned with the first arm.
         return GeneratorUtil.BuildLinesWithIndent(arms, 12);
+    }
+
+    private static string GetKnownTypeArms(
+        AuthorizationModel authModel,
+        ImmutableArray<IdClassToGenerateData> idClasses,
+        bool splitRelationClasses
+    ) => GeneratorUtil.BuildLinesWithIndent(
+        GetDispatchTypes(authModel, idClasses, splitRelationClasses)
+            .Select(type => $"\"{type.TypeName}\" => true,")
+            .DefaultIfEmpty("// No checkable types."), 16);
+
+    private static string GetBatchCases(
+        AuthorizationModel authModel,
+        ImmutableArray<IdClassToGenerateData> idClasses,
+        bool splitRelationClasses
+    ) => GeneratorUtil.BuildLinesWithIndent(
+        GetDispatchTypes(authModel, idClasses, splitRelationClasses)
+            .SelectMany(type => new[] {
+                $"case \"{type.TypeName}\":",
+                $"    await BatchCheckTypeAsync<{type.IdClass}>(svc, user, group.Value, "
+                + $"{type.RelationClass}.FromOpenFgaString, {type.IdClass}.Parse, results, options, ct);",
+                "    break;",
+            }).DefaultIfEmpty("// No checkable types."), 16);
+
+    private static IEnumerable<(string TypeName, string IdClass, string RelationClass)> GetDispatchTypes(
+        AuthorizationModel authModel,
+        ImmutableArray<IdClassToGenerateData> idClasses,
+        bool splitRelationClasses
+    ) {
+        var seenTypeNames = new HashSet<string>();
+        foreach (var idClass in idClasses.OrderBy(id => id.TypeName, System.StringComparer.Ordinal)) {
+            var relationClass = TypeNameRelationsGenerator.ResolveDispatchRelationClassName(
+                authModel, idClass, splitRelationClasses);
+            if (relationClass is null || !seenTypeNames.Add(idClass.TypeName))
+                continue;
+            yield return (idClass.TypeName, $"{idClass.ClassNamespace}.{idClass.ClassName}",
+                $"{idClass.ClassNamespace}.{relationClass}");
+        }
     }
 }
